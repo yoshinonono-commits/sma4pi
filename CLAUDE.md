@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m sma4py               # アプリを起動 (GUI)
-python tests/test_features.py  # 非GUIの機能テスト (11項目)
+python tests/test_features.py  # 非GUIの機能テスト (13項目)
 ```
 
 テストは matplotlib の Agg バックエンドで動くので、GUI 環境が無くても走る。
@@ -65,7 +65,7 @@ sma4py/
 
 ## まだ手を付けていない候補
 
-Undo/Redo、subplot対応、データ点の表エディタ、フィット曲線の再編集、X方向の誤差棒。
+subplot対応、フィット曲線の再編集、X方向の誤差棒。
 
 ## 注意
 

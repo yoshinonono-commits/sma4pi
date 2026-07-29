@@ -124,6 +124,112 @@ class ImportDialog(QDialog):
         )
 
 
+class SeriesDataDialog(QDialog):
+    """系列のデータ点 (X, Y, Y誤差) を表形式で直接編集する。"""
+
+    def __init__(self, series, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"データ点の編集 - {series.name}")
+        self.resize(420, 520)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["X", "Y", "Y誤差"])
+
+        x = np.asarray(series.x, dtype=float)
+        y = np.asarray(series.y, dtype=float)
+        yerr = None if series.yerr is None else np.asarray(series.yerr, dtype=float)
+        self.table.setRowCount(len(x))
+        for r in range(len(x)):
+            self._set_cell(r, 0, x[r])
+            self._set_cell(r, 1, y[r])
+            if yerr is not None:
+                self._set_cell(r, 2, yerr[r])
+
+        add_btn = QPushButton("行を追加")
+        add_btn.clicked.connect(self._add_row)
+        del_btn = QPushButton("選択行を削除")
+        del_btn.clicked.connect(self._delete_selected)
+
+        row = QHBoxLayout()
+        row.addWidget(add_btn)
+        row.addWidget(del_btn)
+        row.addStretch(1)
+
+        hint = QLabel(
+            "Y誤差は空欄でよい。1行でも入力すると、他の空欄の行は 0 として扱う。")
+        hint.setStyleSheet("color: #555; font-size: 11px;")
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._check_and_accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(row)
+        layout.addWidget(self.table, 1)
+        layout.addWidget(hint)
+        layout.addWidget(buttons)
+
+    def _set_cell(self, r, c, value):
+        text = "" if not np.isfinite(value) else f"{value:g}"
+        self.table.setItem(r, c, QTableWidgetItem(text))
+
+    def _add_row(self):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        self.table.setItem(r, 0, QTableWidgetItem("0"))
+        self.table.setItem(r, 1, QTableWidgetItem("0"))
+
+    def _delete_selected(self):
+        rows = sorted({idx.row() for idx in self.table.selectedIndexes()}, reverse=True)
+        for r in rows:
+            self.table.removeRow(r)
+
+    def _cell_value(self, r, c):
+        item = self.table.item(r, c)
+        text = "" if item is None else item.text().strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            raise ValueError(f"{r + 1} 行目: 「{text}」は数値として読めません。")
+
+    def _read(self):
+        xs, ys, es = [], [], []
+        any_err = False
+        for r in range(self.table.rowCount()):
+            xi = self._cell_value(r, 0)
+            yi = self._cell_value(r, 1)
+            if xi is None or yi is None:
+                raise ValueError(f"{r + 1} 行目: X と Y は数値で入力してください。")
+            ei = self._cell_value(r, 2)
+            if ei is not None:
+                any_err = True
+            xs.append(xi)
+            ys.append(yi)
+            es.append(0.0 if ei is None else ei)
+        if not xs:
+            raise ValueError("データ点が1つもありません。")
+        return (
+            np.array(xs, dtype=float),
+            np.array(ys, dtype=float),
+            np.array(es, dtype=float) if any_err else None,
+        )
+
+    def _check_and_accept(self):
+        try:
+            self._data = self._read()
+        except ValueError as e:
+            QMessageBox.warning(self, "入力エラー", str(e))
+            return
+        self.accept()
+
+    def apply_to(self, series):
+        series.x, series.y, series.yerr = self._data
+
+
 class LabelEdit(QWidget):
     """Sma4 記法の入力欄。変換結果をその場でプレビューする。"""
 
@@ -384,7 +490,7 @@ class FunctionDialog(QDialog):
         mf.addRow("y =", self.expr)
         hint = QLabel(
             "x を変数とする式を書きます。\n"
-            "関数: sin cos tan exp log log10 sqrt abs erf jn yn / 定数: pi, e"
+            "関数: sin cos tan exp log log10 sqrt abs erf jn yn voigt(x,s,g) / 定数: pi, e"
         )
         hint.setStyleSheet("color: #555; font-size: 11px;")
         mf.addRow(hint)

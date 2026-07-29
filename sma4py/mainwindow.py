@@ -16,10 +16,10 @@ from . import canvas as canvas_mod
 from . import data_io
 from .dialogs import (
     AnnotationDialog, AxisDialog, FitDialog, FunctionDialog, ImportDialog,
-    SeriesDialog,
+    SeriesDataDialog, SeriesDialog,
 )
 from .interaction import NavigationHandler
-from .model import Annotation, Document, FitCurve, FunctionCurve
+from .model import Annotation, Document, FitCurve, FunctionCurve, History
 
 APP_NAME = "Sma4Py"
 
@@ -28,6 +28,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.doc = Document()
+        self.history = History()
         self.setWindowTitle(APP_NAME)
         self.resize(1000, 680)
 
@@ -58,9 +59,43 @@ class MainWindow(QMainWindow):
         self.redraw()
 
     def _after_interaction(self):
-        """マウス操作でグラフが変わったとき。"""
+        """マウス操作でグラフが変わったとき。拡大・平行移動は元に戻す対象にしない。"""
         self.doc.dirty = True
         self.redraw()
+
+    # --- 元に戻す/やり直し --------------------------------------------------
+
+    def _snapshot(self):
+        """項目を変更する直前に呼び、その時点の状態を履歴に積む。"""
+        self.history.push(self.doc.to_dict())
+        self._sync_undo_actions()
+
+    def _sync_undo_actions(self):
+        self.undo_act.setEnabled(self.history.can_undo())
+        self.redo_act.setEnabled(self.history.can_redo())
+
+    def _restore(self, snapshot):
+        path = self.doc.path
+        self.doc = Document.from_dict(snapshot)
+        self.doc.path = path
+        self.doc.dirty = True
+        self._sync_undo_actions()
+        self.refresh_list()
+        self.redraw()
+
+    def undo(self):
+        snapshot = self.history.undo(self.doc.to_dict())
+        if snapshot is None:
+            self.statusBar().showMessage("元に戻せる操作がありません", 3000)
+            return
+        self._restore(snapshot)
+
+    def redo(self):
+        snapshot = self.history.redo(self.doc.to_dict())
+        if snapshot is None:
+            self.statusBar().showMessage("やり直せる操作がありません", 3000)
+            return
+        self._restore(snapshot)
 
     # --- UI 組み立て ------------------------------------------------------
 
@@ -77,7 +112,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.list, 1)
 
         row = QHBoxLayout()
-        for text, slot in (("設定", self.edit_series), ("削除", self.remove_series)):
+        for text, slot in (("設定", self.edit_series), ("削除", self.remove_series),
+                           ("データ点...", self.edit_series_data)):
             b = QPushButton(text)
             b.clicked.connect(slot)
             row.addWidget(b)
@@ -106,9 +142,15 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._act(m, "終了", self.close, QKeySequence.Quit)
 
+        m = mb.addMenu("編集(&E)")
+        self.undo_act = self._act(m, "元に戻す", self.undo, QKeySequence.Undo)
+        self.redo_act = self._act(m, "やり直す", self.redo, QKeySequence.Redo)
+        self._sync_undo_actions()
+
         m = mb.addMenu("データ(&D)")
         self._act(m, "データファイルを開く...", self.import_data, "Ctrl+D")
         self._act(m, "系列の設定...", self.edit_series)
+        self._act(m, "データ点を編集...", self.edit_series_data)
         self._act(m, "系列を削除", self.remove_series)
 
         m = mb.addMenu("グラフ(&G)")
@@ -198,6 +240,7 @@ class MainWindow(QMainWindow):
         ref = self._ref(self.list.row(item))
         if ref is None:
             return
+        self._snapshot()
         ref[2].visible = item.checkState() == Qt.Checked
         self.doc.dirty = True
         self.redraw()
@@ -216,6 +259,7 @@ class MainWindow(QMainWindow):
         j = i + delta
         if not (0 <= j < len(items)):
             return
+        self._snapshot()
         items[i], items[j] = items[j], items[i]
         self.doc.dirty = True
         self.refresh_list()
@@ -246,6 +290,7 @@ class MainWindow(QMainWindow):
             return
         s = dlg.series()
         s.source = path
+        self._snapshot()
         self.doc.series.append(s)
         self.doc.dirty = True
         self.refresh_list()
@@ -256,6 +301,8 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return
         self.doc = Document()
+        self.history.clear()
+        self._sync_undo_actions()
         self.refresh_list()
         self.redraw()
         self.setWindowTitle(APP_NAME)
@@ -274,6 +321,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "エラー", f"開けませんでした: {e}")
             return
         self.doc.path = path
+        self.history.clear()
+        self._sync_undo_actions()
         self.refresh_list()
         self.redraw()
         self.setWindowTitle(f"{APP_NAME} - {os.path.basename(path)}")
@@ -353,6 +402,7 @@ class MainWindow(QMainWindow):
         elif focus == "y":
             dlg.ylabel_edit.edit.setFocus()
         if dlg.exec() == AxisDialog.Accepted:
+            self._snapshot()
             dlg.apply_to(self.doc.config)
             self.doc.dirty = True
             self.redraw()
@@ -379,16 +429,34 @@ class MainWindow(QMainWindow):
             return
 
         if dlg.exec() == QDialog.Accepted:
+            self._snapshot()
             dlg.apply_to(obj)
             self.doc.dirty = True
             self.refresh_list()
             self.redraw()
+
+    def edit_series_data(self):
+        """選択中の系列のデータ点を表形式で編集する。"""
+        ref = self._ref()
+        if ref is None or ref[0] != "series":
+            QMessageBox.information(self, APP_NAME, "系列を選んでください。")
+            return
+        _, _, s = ref
+        dlg = SeriesDataDialog(s, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._snapshot()
+        dlg.apply_to(s)
+        self.doc.dirty = True
+        self.refresh_list()
+        self.redraw()
 
     def remove_series(self):
         ref = self._ref()
         if ref is None:
             return
         kind, i, _ = ref
+        self._snapshot()
         del self._lists()[kind][i]
         self.doc.dirty = True
         self.refresh_list()
@@ -404,6 +472,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
         dlg.apply_to(f)
+        self._snapshot()
         self.doc.functions.append(f)
         self.doc.dirty = True
         self.refresh_list()
@@ -416,6 +485,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
         dlg.apply_to(a)
+        self._snapshot()
         self.doc.annotations.append(a)
         self.doc.dirty = True
         self.refresh_list()
@@ -427,6 +497,7 @@ class MainWindow(QMainWindow):
         self.nav.reset_view()
 
     def toggle_legend(self):
+        self._snapshot()
         self.doc.config.legend = not self.doc.config.legend
         self.doc.dirty = True
         self.redraw()
@@ -444,6 +515,7 @@ class MainWindow(QMainWindow):
         x, _ = s.transformed()
         x = np.asarray(x, dtype=float)
         x = x[np.isfinite(x)]
+        self._snapshot()
         self.doc.fits.append(FitCurve(
             name=f"fit: {s.name}",
             expr=res.expr, params=res.params, values=res.values,
@@ -454,6 +526,7 @@ class MainWindow(QMainWindow):
         self.redraw()
 
     def clear_fits(self):
+        self._snapshot()
         self.doc.fits.clear()
         self.doc.dirty = True
         self.refresh_list()

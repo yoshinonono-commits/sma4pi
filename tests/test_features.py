@@ -15,8 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backend_bases import MouseEvent, MouseButton
 
-from sma4py import canvas as cv, model, interaction
-from sma4py.model import Document, Series, FunctionCurve, Annotation
+from sma4py import canvas as cv, model, interaction, fitting
+from sma4py.model import Document, Series, FunctionCurve, Annotation, History
 
 # --- 土台 -----------------------------------------------------------------
 cv.setup_japanese_font()
@@ -147,4 +147,34 @@ doc.config.ylabel = "%Iy%R"
 cv.render(doc, ax)
 fig.savefig("/tmp/demo2.png", dpi=150)
 print("  demo2.png を出力")
+
+print("\n=== 12. Voigt プリセットでのフィッティング ===")
+xv = np.linspace(-5, 5, 200)
+name, expr, params = fitting.PRESETS[-1]
+print(f"  プリセット名: {name}")
+assert params == ["a", "b", "s", "g"]
+from sma4py.expression import make_function
+f = make_function(expr, params)
+yv = f(xv, 3.0, 0.0, 1.0, 0.5) + np.random.normal(0, 0.01, xv.size)
+res = fitting.fit(xv, yv, expr, params, p0=[1.0, 0.0, 1.0, 1.0])
+print(f"  推定: a={res.values[0]:.3f} b={res.values[1]:.3f} "
+      f"s={res.values[2]:.3f} g={res.values[3]:.3f} (真値 3, 0, 1, 0.5)")
+assert abs(res.values[0] - 3.0) < 0.3
+assert res.r2 > 0.9
+
+print("\n=== 13. 元に戻す/やり直し (History) ===")
+h = History()
+snap_empty = doc.to_dict()
+h.push(snap_empty)
+snap_after_change = doc.to_dict()
+snap_after_change["config"]["title"] = "変更後"
+restored = h.undo(snap_after_change)
+print(f"  undo でタイトルが元に戻る: {restored['config']['title'] == snap_empty['config']['title']}")
+assert restored["config"]["title"] == snap_empty["config"]["title"]
+assert not h.can_undo() and h.can_redo()
+redone = h.redo(restored)
+print(f"  redo で変更後の状態に戻る: {redone['config']['title'] == '変更後'}")
+assert redone["config"]["title"] == "変更後"
+assert h.can_undo() and not h.can_redo()
+
 print("\n全テスト通過")

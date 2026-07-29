@@ -38,7 +38,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 - git リポジトリを初期化して最初のコミットを作成（git があれば）
 - 仮想環境 `.venv` を作成
 - `requirements.txt` の依存をインストール
-- 非GUIテスト（`tests/test_features.py`、11項目）を実行して健全性を確認
+- 非GUIテスト（`tests/test_features.py`、13項目）を実行して健全性を確認
 - Claude Code が入っているか確認し、無ければインストール方法を案内
 
 ### 3. Claude Code を入れる（未インストールなら）

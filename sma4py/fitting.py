@@ -15,6 +15,7 @@ PRESETS = [
     ("ガウス a*exp(-((x-b)/c)^2)", "a*exp(-((x-b)/c)**2)", ["a", "b", "c"]),
     ("ローレンツ a/((x-b)^2+c)", "a/((x-b)**2+c)", ["a", "b", "c"]),
     ("対数 a + b*log(x)", "a + b*log(x)", ["a", "b"]),
+    ("Voigt a*voigt(x-b,s,g)", "a*voigt(x-b, s, g)", ["a", "b", "s", "g"]),
 ]
 
 

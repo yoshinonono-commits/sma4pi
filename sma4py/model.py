@@ -229,3 +229,45 @@ class Document:
         for ad in d.get("annotations", []):
             doc.annotations.append(Annotation(**ad))
         return doc
+
+
+class History:
+    """元に戻す/やり直すためのスナップショット管理。
+
+    Document.to_dict() の結果をそのまま積むだけの単純な実装。GUI には依存しない。
+    """
+
+    def __init__(self, limit=50):
+        self.limit = limit
+        self._undo = []
+        self._redo = []
+
+    def clear(self):
+        self._undo.clear()
+        self._redo.clear()
+
+    def can_undo(self):
+        return bool(self._undo)
+
+    def can_redo(self):
+        return bool(self._redo)
+
+    def push(self, snapshot):
+        """変更を加える直前のスナップショットを積む。"""
+        self._undo.append(snapshot)
+        if len(self._undo) > self.limit:
+            self._undo.pop(0)
+        self._redo.clear()
+
+    def undo(self, current):
+        """current (今の状態) を redo 用に積み、直前のスナップショットを返す。"""
+        if not self._undo:
+            return None
+        self._redo.append(current)
+        return self._undo.pop()
+
+    def redo(self, current):
+        if not self._redo:
+            return None
+        self._undo.append(current)
+        return self._redo.pop()
