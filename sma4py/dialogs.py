@@ -63,6 +63,10 @@ class ImportDialog(QDialog):
         self.y_combo.addItems(items)
         self.y_combo.setCurrentIndex(min(1, ncol - 1))
 
+        self.xerr_combo = QComboBox()
+        self.xerr_combo.addItem("なし")
+        self.xerr_combo.addItems(items)
+
         self.err_combo = QComboBox()
         self.err_combo.addItem("なし")
         self.err_combo.addItems(items)
@@ -78,6 +82,7 @@ class ImportDialog(QDialog):
         form = QFormLayout()
         form.addRow("X 軸にとる列", self.x_combo)
         form.addRow("Y 軸にとる列", self.y_combo)
+        form.addRow("X 誤差の列", self.xerr_combo)
         form.addRow("Y 誤差の列", self.err_combo)
         form.addRow("系列名", self.name_edit)
         form.addRow("マーカー", self.marker_combo)
@@ -111,12 +116,15 @@ class ImportDialog(QDialog):
     def series(self):
         xi = self.x_combo.currentIndex()
         yi = self.y_combo.currentIndex()
+        xei = self.xerr_combo.currentIndex()
         ei = self.err_combo.currentIndex()
+        xerr = None if xei == 0 else self.data[:, xei - 1]
         yerr = None if ei == 0 else self.data[:, ei - 1]
         return Series(
             name=self.name_edit.text() or "series",
             x=self.data[:, xi].copy(),
             y=self.data[:, yi].copy(),
+            xerr=None if xerr is None else xerr.copy(),
             yerr=None if yerr is None else yerr.copy(),
             marker=self.marker_combo.currentText(),
             linestyle=self.line_combo.currentText(),
@@ -125,26 +133,29 @@ class ImportDialog(QDialog):
 
 
 class SeriesDataDialog(QDialog):
-    """系列のデータ点 (X, Y, Y誤差) を表形式で直接編集する。"""
+    """系列のデータ点 (X, Y, X誤差, Y誤差) を表形式で直接編集する。"""
 
     def __init__(self, series, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"データ点の編集 - {series.name}")
-        self.resize(420, 520)
+        self.resize(460, 520)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["X", "Y", "Y誤差"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["X", "Y", "X誤差", "Y誤差"])
 
         x = np.asarray(series.x, dtype=float)
         y = np.asarray(series.y, dtype=float)
+        xerr = None if series.xerr is None else np.asarray(series.xerr, dtype=float)
         yerr = None if series.yerr is None else np.asarray(series.yerr, dtype=float)
         self.table.setRowCount(len(x))
         for r in range(len(x)):
             self._set_cell(r, 0, x[r])
             self._set_cell(r, 1, y[r])
+            if xerr is not None:
+                self._set_cell(r, 2, xerr[r])
             if yerr is not None:
-                self._set_cell(r, 2, yerr[r])
+                self._set_cell(r, 3, yerr[r])
 
         add_btn = QPushButton("行を追加")
         add_btn.clicked.connect(self._add_row)
@@ -157,7 +168,8 @@ class SeriesDataDialog(QDialog):
         row.addStretch(1)
 
         hint = QLabel(
-            "Y誤差は空欄でよい。1行でも入力すると、他の空欄の行は 0 として扱う。")
+            "X誤差・Y誤差は空欄でよい。列ごとに1行でも入力すると、"
+            "その列の他の空欄の行は 0 として扱う。")
         hint.setStyleSheet("color: #555; font-size: 11px;")
 
         buttons = QDialogButtonBox(
@@ -197,25 +209,30 @@ class SeriesDataDialog(QDialog):
             raise ValueError(f"{r + 1} 行目: 「{text}」は数値として読めません。")
 
     def _read(self):
-        xs, ys, es = [], [], []
-        any_err = False
+        xs, ys, xes, yes = [], [], [], []
+        any_xerr = any_yerr = False
         for r in range(self.table.rowCount()):
             xi = self._cell_value(r, 0)
             yi = self._cell_value(r, 1)
             if xi is None or yi is None:
                 raise ValueError(f"{r + 1} 行目: X と Y は数値で入力してください。")
-            ei = self._cell_value(r, 2)
-            if ei is not None:
-                any_err = True
+            xei = self._cell_value(r, 2)
+            yei = self._cell_value(r, 3)
+            if xei is not None:
+                any_xerr = True
+            if yei is not None:
+                any_yerr = True
             xs.append(xi)
             ys.append(yi)
-            es.append(0.0 if ei is None else ei)
+            xes.append(0.0 if xei is None else xei)
+            yes.append(0.0 if yei is None else yei)
         if not xs:
             raise ValueError("データ点が1つもありません。")
         return (
             np.array(xs, dtype=float),
             np.array(ys, dtype=float),
-            np.array(es, dtype=float) if any_err else None,
+            np.array(xes, dtype=float) if any_xerr else None,
+            np.array(yes, dtype=float) if any_yerr else None,
         )
 
     def _check_and_accept(self):
@@ -227,7 +244,7 @@ class SeriesDataDialog(QDialog):
         self.accept()
 
     def apply_to(self, series):
-        series.x, series.y, series.yerr = self._data
+        series.x, series.y, series.xerr, series.yerr = self._data
 
 
 class LabelEdit(QWidget):
@@ -314,6 +331,8 @@ class AxisDialog(QDialog):
         self.legend_loc.setCurrentText(config.legend_loc)
         self.grid = QCheckBox("グリッド線を表示")
         self.grid.setChecked(config.grid)
+        self.show_residuals = QCheckBox("残差プロットを表示する (フィット曲線がある場合)")
+        self.show_residuals.setChecked(config.show_residuals)
         self.font_size = QDoubleSpinBox()
         self.font_size.setRange(4, 40)
         self.font_size.setValue(config.font_size)
@@ -326,6 +345,7 @@ class AxisDialog(QDialog):
         lkf.addRow(self.legend)
         lkf.addRow("凡例の位置", self.legend_loc)
         lkf.addRow(self.grid)
+        lkf.addRow(self.show_residuals)
         lkf.addRow("文字サイズ", self.font_size)
         lkf.addRow("目盛りの向き", self.tick_dir)
 
@@ -377,6 +397,7 @@ class AxisDialog(QDialog):
         cfg.legend = self.legend.isChecked()
         cfg.legend_loc = self.legend_loc.currentText()
         cfg.grid = self.grid.isChecked()
+        cfg.show_residuals = self.show_residuals.isChecked()
         cfg.font_size = self.font_size.value()
         cfg.tick_direction = self.tick_dir.currentText()
 
@@ -690,10 +711,12 @@ class FitDialog(QDialog):
         self.setWindowTitle("最小二乗フィッティング")
         self.series_list = series
         self.result = None
-        self.resize(520, 560)
+        self.fit_xrange = None
+        self.resize(560, 720)
 
         self.target = QComboBox()
         self.target.addItems([s.name for s in series])
+        self.target.currentIndexChanged.connect(self._sync_range_defaults)
 
         self.preset = QComboBox()
         self.preset.addItem("(自分で式を書く)")
@@ -711,11 +734,52 @@ class FitDialog(QDialog):
         tf.addRow("y =", self.expr)
         tf.addRow("パラメータ", self.params)
 
+        self.peak_shape = QComboBox()
+        self.peak_shape.addItems(list(fitting.PEAK_SHAPES))
+        self.peak_count = QSpinBox()
+        self.peak_count.setRange(1, 10)
+        self.peak_count.setValue(2)
+        self.peak_baseline = QCheckBox("ベースライン (定数) を含める")
+        self.peak_baseline.setChecked(True)
+        self.peak_btn = QPushButton("この形状で式を生成")
+        self.peak_btn.clicked.connect(self._build_multipeak)
+
+        multi = QGroupBox("多重ピーク (分光データ向け)")
+        mf = QFormLayout(multi)
+        mf.addRow("ピーク形状", self.peak_shape)
+        mf.addRow("ピーク数", self.peak_count)
+        mf.addRow(self.peak_baseline)
+        mf.addRow(self.peak_btn)
+        hint = QLabel(
+            "「y =」「パラメータ」欄と初期値をまとめて作る。ピーク中心はデータの\n"
+            "x 範囲に等間隔で仮置きするので、実際のピーク位置に合わせて調整すること。")
+        hint.setStyleSheet("color: #555; font-size: 11px;")
+        mf.addRow(hint)
+
         self.p0_box = QGroupBox("初期値")
         self.p0_layout = QFormLayout(self.p0_box)
         self.p0_widgets = {}
 
         self.use_err = QCheckBox("Y 誤差を重みに使う (誤差列がある場合)")
+
+        self.range_chk = QCheckBox("フィット範囲を指定する")
+        self.range_min = QDoubleSpinBox()
+        self.range_max = QDoubleSpinBox()
+        for sb in (self.range_min, self.range_max):
+            sb.setRange(-1e12, 1e12)
+            sb.setDecimals(6)
+        range_box = QGroupBox("フィット範囲")
+        rf = QFormLayout(range_box)
+        rf.addRow(self.range_chk)
+        rf.addRow("x 最小", self.range_min)
+        rf.addRow("x 最大", self.range_max)
+
+        def sync_range():
+            self.range_min.setEnabled(self.range_chk.isChecked())
+            self.range_max.setEnabled(self.range_chk.isChecked())
+
+        self.range_chk.toggled.connect(sync_range)
+        sync_range()
 
         self.run_btn = QPushButton("フィット実行")
         self.run_btn.clicked.connect(self._run)
@@ -733,13 +797,16 @@ class FitDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(top)
+        layout.addWidget(multi)
         layout.addWidget(self.p0_box)
+        layout.addWidget(range_box)
         layout.addWidget(self.use_err)
         layout.addWidget(self.run_btn)
         layout.addWidget(self.output, 1)
         layout.addWidget(buttons)
 
         self._rebuild_p0()
+        self._sync_range_defaults()
 
     def _apply_preset(self, idx):
         if idx <= 0:
@@ -747,6 +814,63 @@ class FitDialog(QDialog):
         _, expr, params = fitting.PRESETS[idx - 1]
         self.expr.setText(expr)
         self.params.setText(", ".join(params))
+
+    def _build_multipeak(self):
+        """多重ピークの式・パラメータを組み立て、初期値も大まかに仮置きする。"""
+        shape = self.peak_shape.currentText()
+        n = self.peak_count.value()
+        baseline = self.peak_baseline.isChecked()
+        expr, params = fitting.build_multipeak(shape, n, baseline=baseline)
+        self.expr.setText(expr)
+        self.params.setText(", ".join(params))  # _rebuild_p0 が同期して走る
+
+        s = self.series_list[self.target.currentIndex()]
+        try:
+            x, y = s.transformed()
+            x = np.asarray(x, dtype=float)
+            y = np.asarray(y, dtype=float)
+            good = np.isfinite(x) & np.isfinite(y)
+            x, y = x[good], y[good]
+        except Exception:
+            x = y = np.array([])
+        if len(x) == 0:
+            return
+
+        lo, hi = float(x.min()), float(x.max())
+        span = (hi - lo) or 1.0
+        centers = np.linspace(lo + span / (n + 1), hi - span / (n + 1), n) if n > 1 else [lo + span / 2]
+        amp = float(np.nanmax(y) - np.nanmin(y)) or 1.0
+        width = max(span / max(n, 1) / 4, 1e-3)
+
+        if baseline and "d0" in self.p0_widgets:
+            self.p0_widgets["d0"].setValue(float(np.nanmin(y)))
+        names, _ = fitting.PEAK_SHAPES[shape]
+        for i, center in enumerate(centers, start=1):
+            for name in names:
+                widget = self.p0_widgets.get(f"{name}{i}")
+                if widget is None:
+                    continue
+                if name == "a":
+                    widget.setValue(amp)
+                elif name == "b":
+                    widget.setValue(float(center))
+                else:
+                    widget.setValue(width)
+
+    def _sync_range_defaults(self):
+        """対象の系列を切り替えたとき、フィット範囲欄の初期値をデータ範囲に合わせる。"""
+        if not self.series_list:
+            return
+        s = self.series_list[self.target.currentIndex()]
+        try:
+            x, _ = s.transformed()
+            x = np.asarray(x, dtype=float)
+            x = x[np.isfinite(x)]
+        except Exception:
+            return
+        if len(x):
+            self.range_min.setValue(float(x.min()))
+            self.range_max.setValue(float(x.max()))
 
     def _param_names(self):
         return [p.strip() for p in self.params.text().split(",") if p.strip()]
@@ -778,8 +902,24 @@ class FitDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "エラー", f"数式変換で失敗しました: {e}")
             return
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
 
         sigma = s.yerr if (self.use_err.isChecked() and s.yerr is not None) else None
+        if sigma is not None:
+            sigma = np.asarray(sigma, dtype=float)
+
+        self.fit_xrange = None
+        if self.range_chk.isChecked():
+            lo, hi = self.range_min.value(), self.range_max.value()
+            if lo >= hi:
+                QMessageBox.warning(self, "入力エラー", "フィット範囲の最小・最大が正しくありません。")
+                return
+            mask = (x >= lo) & (x <= hi)
+            x, y = x[mask], y[mask]
+            if sigma is not None and len(sigma) == len(mask):
+                sigma = sigma[mask]
+            self.fit_xrange = (lo, hi)
 
         self.setCursor(Qt.WaitCursor)
         try:

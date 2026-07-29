@@ -21,6 +21,7 @@ class Series:
     name: str = "series"
     x: np.ndarray = field(default_factory=lambda: np.array([]))
     y: np.ndarray = field(default_factory=lambda: np.array([]))
+    xerr: Optional[np.ndarray] = None
     yerr: Optional[np.ndarray] = None
 
     marker: str = "○ 白丸"
@@ -88,6 +89,9 @@ class FitCurve:
     xmax: float = 1.0
     npoints: int = 400
 
+    # フィット元の系列名 (残差プロットで対応するデータを探すのに使う)
+    source_series: str = ""
+
     def sample(self):
         from .expression import make_function
 
@@ -96,6 +100,14 @@ class FitCurve:
         with np.errstate(all="ignore"):
             y = np.asarray(f(x, *self.values), dtype=float)
         return x, y
+
+    def evaluate(self, x):
+        """任意の x での予測値を返す (残差プロット用)。"""
+        from .expression import make_function
+
+        f = make_function(self.expr, self.params)
+        with np.errstate(all="ignore"):
+            return np.asarray(f(np.asarray(x, dtype=float), *self.values), dtype=float)
 
 
 @dataclass
@@ -173,6 +185,7 @@ class GraphConfig:
     legend: bool = False
     legend_loc: str = "best"
     grid: bool = False
+    show_residuals: bool = False
 
     font_size: float = 12.0
     tick_direction: str = "in"
@@ -200,9 +213,10 @@ class Document:
             "series": [
                 {
                     **{k: v for k, v in asdict(s).items()
-                       if k not in ("x", "y", "yerr")},
+                       if k not in ("x", "y", "xerr", "yerr")},
                     "x": np.asarray(s.x).tolist(),
                     "y": np.asarray(s.y).tolist(),
+                    "xerr": None if s.xerr is None else np.asarray(s.xerr).tolist(),
                     "yerr": None if s.yerr is None else np.asarray(s.yerr).tolist(),
                 }
                 for s in self.series
@@ -218,6 +232,8 @@ class Document:
             sd = dict(sd)
             sd["x"] = np.array(sd.get("x", []), dtype=float)
             sd["y"] = np.array(sd.get("y", []), dtype=float)
+            xe = sd.get("xerr")
+            sd["xerr"] = None if xe is None else np.array(xe, dtype=float)
             ye = sd.get("yerr")
             sd["yerr"] = None if ye is None else np.array(ye, dtype=float)
             doc.series.append(Series(**sd))

@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m sma4py               # アプリを起動 (GUI)
-python tests/test_features.py  # 非GUIの機能テスト (13項目)
+python tests/test_features.py  # 非GUIの機能テスト (16項目)
 ```
 
 テストは matplotlib の Agg バックエンドで動くので、GUI 環境が無くても走る。
@@ -57,6 +57,7 @@ sma4py/
 ## よくある作業の入り口
 
 - フィット関数のプリセットを増やす → `fitting.py` の `PRESETS`
+- 多重ピークの形状を増やす → `fitting.py` の `PEAK_SHAPES`
 - 数式変換で使える関数を増やす → `expression.py` の `FUNCS`
 - Sma4記法の記号を増やす → `notation.py`
 - 新しい描画要素(系列以外)を足す → `model.py` にデータクラス追加 →
@@ -65,7 +66,7 @@ sma4py/
 
 ## まだ手を付けていない候補
 
-subplot対応、フィット曲線の再編集、X方向の誤差棒。
+subplot対応、フィット曲線の再編集。
 
 ## 注意
 

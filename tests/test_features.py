@@ -177,4 +177,49 @@ print(f"  redo で変更後の状態に戻る: {redone['config']['title'] == '�
 assert redone["config"]["title"] == "変更後"
 assert h.can_undo() and not h.can_redo()
 
+print("\n=== 14. X方向の誤差棒と保存/読み込み ===")
+s_err = Series(name="xy誤差", x=np.array([1.0, 2.0, 3.0]), y=np.array([1.0, 4.0, 9.0]),
+               xerr=np.array([0.1, 0.2, 0.1]), yerr=np.array([0.5, 0.3, 0.4]))
+doc_err = Document()
+doc_err.series.append(s_err)
+ax_err = plt.figure().add_subplot(111)
+cv.render(doc_err, ax_err)  # xerr 付きでもエラーにならないことを確認
+d_err = json.loads(json.dumps(doc_err.to_dict(), ensure_ascii=False))
+doc_err2 = Document.from_dict(d_err)
+print(f"  xerr 往復: {doc_err2.series[0].xerr.tolist()}")
+assert np.allclose(doc_err2.series[0].xerr, s_err.xerr)
+assert np.allclose(doc_err2.series[0].yerr, s_err.yerr)
+
+print("\n=== 15. 残差プロット ===")
+xr = np.linspace(0, 10, 30)
+yr = 2.0 + 3.0 * xr + np.random.normal(0, 0.05, xr.size)
+doc_r = Document()
+doc_r.series.append(Series(name="線形", x=xr, y=yr))
+res_r = fitting.fit(xr, yr, "a + b*x", ["a", "b"], p0=[1.0, 1.0])
+doc_r.fits.append(model.FitCurve(
+    name="fit: 線形", source_series="線形", expr=res_r.expr,
+    params=res_r.params, values=res_r.values, xmin=float(xr.min()), xmax=float(xr.max())))
+print(f"  残差データが取れる: {cv.has_residual_data(doc_r)}")
+assert cv.has_residual_data(doc_r)
+fig_r = plt.figure(figsize=(6, 4.5), layout="constrained")
+main_ax, res_ax = cv.build_axes(fig_r, True)
+cv.render(doc_r, main_ax, residual_ax=res_ax)
+rx, resid = cv._fit_residual(doc_r, doc_r.fits[0])
+print(f"  残差の標準偏差 ≈ {np.std(resid):.3f} (ノイズ 0.05 程度)")
+assert np.std(resid) < 0.2
+
+print("\n=== 16. 多重ピーク関数の組み立て ===")
+expr_mp, params_mp = fitting.build_multipeak("ガウス", 2, baseline=True)
+print(f"  生成された式: {expr_mp}")
+print(f"  パラメータ: {params_mp}")
+assert params_mp == ["d0", "a1", "b1", "c1", "a2", "b2", "c2"]
+xmp = np.linspace(-10, 10, 300)
+f_mp = make_function(expr_mp, params_mp)
+true_vals = [0.5, 3.0, -3.0, 1.0, 2.0, 3.0, 1.5]
+ymp = f_mp(xmp, *true_vals) + np.random.normal(0, 0.02, xmp.size)
+res_mp = fitting.fit(xmp, ymp, expr_mp, params_mp, p0=true_vals)
+print(f"  推定 b1={res_mp.values[2]:.2f} b2={res_mp.values[5]:.2f} (真値 -3, 3)")
+assert abs(res_mp.values[2] - (-3.0)) < 0.3
+assert abs(res_mp.values[5] - 3.0) < 0.3
+
 print("\n全テスト通過")

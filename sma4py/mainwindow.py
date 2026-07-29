@@ -33,7 +33,8 @@ class MainWindow(QMainWindow):
         self.resize(1000, 680)
 
         canvas_mod.setup_japanese_font()
-        self.canvas, self.fig, self.ax = canvas_mod.make_canvas(self)
+        self.canvas, self.fig, self.ax, self.residual_ax = canvas_mod.make_canvas(self)
+        self._has_residual = False
         self.canvas.setFocusPolicy(Qt.StrongFocus)
 
         self.nav = NavigationHandler(
@@ -188,7 +189,12 @@ class MainWindow(QMainWindow):
     # --- 描画・同期 -------------------------------------------------------
 
     def redraw(self):
-        artists = canvas_mod.render(self.doc, self.ax)
+        need_residual = self.doc.config.show_residuals and canvas_mod.has_residual_data(self.doc)
+        if need_residual != self._has_residual:
+            self.ax, self.residual_ax = canvas_mod.build_axes(self.fig, need_residual)
+            self.nav.ax = self.ax
+            self._has_residual = need_residual
+        artists = canvas_mod.render(self.doc, self.ax, residual_ax=self.residual_ax)
         self.nav.set_artists(artists)
         self.canvas.draw_idle()
 
@@ -512,14 +518,18 @@ class MainWindow(QMainWindow):
         if dlg.exec() != FitDialog.Accepted or dlg.result is None:
             return
         res, s = dlg.result
-        x, _ = s.transformed()
-        x = np.asarray(x, dtype=float)
-        x = x[np.isfinite(x)]
+        if getattr(dlg, "fit_xrange", None):
+            xmin, xmax = dlg.fit_xrange
+        else:
+            x, _ = s.transformed()
+            x = np.asarray(x, dtype=float)
+            x = x[np.isfinite(x)]
+            xmin, xmax = float(x.min()), float(x.max())
         self._snapshot()
         self.doc.fits.append(FitCurve(
-            name=f"fit: {s.name}",
+            name=f"fit: {s.name}", source_series=s.name,
             expr=res.expr, params=res.params, values=res.values,
-            xmin=float(x.min()), xmax=float(x.max()),
+            xmin=xmin, xmax=xmax,
         ))
         self.doc.dirty = True
         self.refresh_list()
