@@ -150,7 +150,7 @@ print("  demo2.png を出力")
 
 print("\n=== 12. Voigt プリセットでのフィッティング ===")
 xv = np.linspace(-5, 5, 200)
-name, expr, params = fitting.PRESETS[-1]
+name, expr, params = next(p for p in fitting.PRESETS if p[0].startswith("Voigt"))
 print(f"  プリセット名: {name}")
 assert params == ["a", "b", "s", "g"]
 from sma4py.expression import make_function
@@ -221,5 +221,18 @@ res_mp = fitting.fit(xmp, ymp, expr_mp, params_mp, p0=true_vals)
 print(f"  推定 b1={res_mp.values[2]:.2f} b2={res_mp.values[5]:.2f} (真値 -3, 3)")
 assert abs(res_mp.values[2] - (-3.0)) < 0.3
 assert abs(res_mp.values[5] - 3.0) < 0.3
+
+print("\n=== 17. 誤差関数(erf)プリセットでのフィッティング ===")
+name_erf, expr_erf, params_erf = next(p for p in fitting.PRESETS if "erf" in p[1])
+print(f"  プリセット名: {name_erf}")
+assert params_erf == ["a", "b", "c", "d"]
+xe = np.linspace(-10, 10, 200)
+f_erf = make_function(expr_erf, params_erf)
+ye = f_erf(xe, 5.0, 3.0, 1.0, 2.0) + np.random.normal(0, 0.05, xe.size)
+res_erf = fitting.fit(xe, ye, expr_erf, params_erf, p0=[1.0, 1.0, 0.0, 1.0])
+print(f"  推定: a={res_erf.values[0]:.2f} b={res_erf.values[1]:.2f} "
+      f"c={res_erf.values[2]:.2f} d={res_erf.values[3]:.2f} (真値 5, 3, 1, 2)")
+assert abs(res_erf.values[0] - 5.0) < 0.3
+assert res_erf.r2 > 0.95
 
 print("\n全テスト通過")

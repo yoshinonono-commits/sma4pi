@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m sma4py               # アプリを起動 (GUI)
-python tests/test_features.py  # 非GUIの機能テスト (16項目)
+python tests/test_features.py  # 非GUIの機能テスト (17項目)
 ```
 
 テストは matplotlib の Agg バックエンドで動くので、GUI 環境が無くても走る。
