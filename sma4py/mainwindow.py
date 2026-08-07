@@ -67,8 +67,12 @@ class MainWindow(QMainWindow):
     # --- 元に戻す/やり直し --------------------------------------------------
 
     def _snapshot(self):
-        """項目を変更する直前に呼び、その時点の状態を履歴に積む。"""
-        self.history.push(self.doc.to_dict())
+        """項目を変更する直前に呼び、その時点の状態を履歴に積む。
+
+        force_embed=True: Undo/Redoはディスクに書くわけではないので、
+        「データを埋め込んで保存」がオフでも毎回元ファイルを読み直したりしない。
+        """
+        self.history.push(self.doc.to_dict(force_embed=True))
         self._sync_undo_actions()
 
     def _sync_undo_actions(self):
@@ -81,18 +85,19 @@ class MainWindow(QMainWindow):
         self.doc.path = path
         self.doc.dirty = True
         self._sync_undo_actions()
+        self._sync_embed_data_action()
         self.refresh_list()
         self.redraw()
 
     def undo(self):
-        snapshot = self.history.undo(self.doc.to_dict())
+        snapshot = self.history.undo(self.doc.to_dict(force_embed=True))
         if snapshot is None:
             self.statusBar().showMessage("元に戻せる操作がありません", 3000)
             return
         self._restore(snapshot)
 
     def redo(self):
-        snapshot = self.history.redo(self.doc.to_dict())
+        snapshot = self.history.redo(self.doc.to_dict(force_embed=True))
         if snapshot is None:
             self.statusBar().showMessage("やり直せる操作がありません", 3000)
             return
@@ -137,6 +142,16 @@ class MainWindow(QMainWindow):
         self._act(m, "グラフを開く...", self.open_doc, QKeySequence.Open)
         self._act(m, "グラフを保存", self.save_doc, QKeySequence.Save)
         self._act(m, "名前を付けて保存...", self.save_doc_as, "Ctrl+Shift+S")
+        m.addSeparator()
+        self.embed_data_act = QAction("データを埋め込んで保存", self)
+        self.embed_data_act.setCheckable(True)
+        self.embed_data_act.setToolTip(
+            "オフにすると、元ファイルから読み込んだ系列はファイルにデータを埋め込まず、"
+            "開くときに元ファイルから読み直します(元ファイルが必要になります)。"
+            "手作業で編集した系列は常に埋め込まれます。")
+        self.embed_data_act.toggled.connect(self.set_embed_data)
+        m.addAction(self.embed_data_act)
+        self._sync_embed_data_action()
         m.addSeparator()
         self._act(m, "画像として書き出す...", self.export_image, "Ctrl+E")
         self._act(m, "印刷/PDF...", self.export_pdf, QKeySequence.Print)
@@ -309,6 +324,7 @@ class MainWindow(QMainWindow):
         self.doc = Document()
         self.history.clear()
         self._sync_undo_actions()
+        self._sync_embed_data_action()
         self.refresh_list()
         self.redraw()
         self.setWindowTitle(APP_NAME)
@@ -329,6 +345,12 @@ class MainWindow(QMainWindow):
         self.doc.path = path
         self.history.clear()
         self._sync_undo_actions()
+        self._sync_embed_data_action()
+        warnings = getattr(self.doc, "_load_warnings", [])
+        if warnings:
+            QMessageBox.warning(
+                self, APP_NAME,
+                "元データの再読み込みに失敗した系列があります:\n\n" + "\n".join(warnings))
         self.refresh_list()
         self.redraw()
         self.setWindowTitle(f"{APP_NAME} - {os.path.basename(path)}")
@@ -453,6 +475,9 @@ class MainWindow(QMainWindow):
             return
         self._snapshot()
         dlg.apply_to(s)
+        # 手作業で編集すると元ファイルの列と対応しなくなるので、
+        # 「データを埋め込まない」保存の対象から外し、常に埋め込む
+        s.x_col = s.y_col = s.xerr_col = s.yerr_col = None
         self.doc.dirty = True
         self.refresh_list()
         self.redraw()
@@ -507,6 +532,19 @@ class MainWindow(QMainWindow):
         self.doc.config.legend = not self.doc.config.legend
         self.doc.dirty = True
         self.redraw()
+
+    def set_embed_data(self, checked):
+        if self.doc.embed_data == checked:
+            return
+        self._snapshot()
+        self.doc.embed_data = checked
+        self.doc.dirty = True
+
+    def _sync_embed_data_action(self):
+        """ドキュメントを差し替えた (新規/開く/元に戻す) 後、チェック状態を合わせる。"""
+        self.embed_data_act.blockSignals(True)
+        self.embed_data_act.setChecked(self.doc.embed_data)
+        self.embed_data_act.blockSignals(False)
 
     # --- 解析 -------------------------------------------------------------
 

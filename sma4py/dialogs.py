@@ -126,6 +126,10 @@ class ImportDialog(QDialog):
             y=self.data[:, yi].copy(),
             xerr=None if xerr is None else xerr.copy(),
             yerr=None if yerr is None else yerr.copy(),
+            # 元ファイルの列番号を覚えておく (「データを埋め込まない」保存で使う)
+            x_col=xi, y_col=yi,
+            xerr_col=None if xei == 0 else xei - 1,
+            yerr_col=None if ei == 0 else ei - 1,
             marker=self.marker_combo.currentText(),
             linestyle=self.line_combo.currentText(),
             color=self.color_btn.color(),

@@ -235,4 +235,53 @@ print(f"  推定: a={res_erf.values[0]:.2f} b={res_erf.values[1]:.2f} "
 assert abs(res_erf.values[0] - 5.0) < 0.3
 assert res_erf.r2 > 0.95
 
+print("\n=== 18. データを埋め込まない保存 (embed_data) ===")
+from sma4py import data_io
+import tempfile
+
+tmp_dir = tempfile.mkdtemp()
+src_path = os.path.join(tmp_dir, "src.txt")
+with open(src_path, "w", encoding="utf-8") as fh:
+    fh.write("# x y yerr\n")
+    for xv, yv, ev in zip([1.0, 2.0, 3.0, 4.0], [1.0, 4.0, 9.0, 16.0], [0.1, 0.2, 0.1, 0.3]):
+        fh.write(f"{xv} {yv} {ev}\n")
+data_src, _ = data_io.load_table(src_path)
+
+doc_e = Document()
+doc_e.embed_data = False
+s_file = Series(name="fromfile", x=data_src[:, 0].copy(), y=data_src[:, 1].copy(),
+                yerr=data_src[:, 2].copy(), source=src_path, x_col=0, y_col=1, yerr_col=2)
+s_manual = Series(name="manual", x=np.array([1.0, 2.0]), y=np.array([5.0, 6.0]))
+doc_e.series.append(s_file)
+doc_e.series.append(s_manual)
+
+d_e = doc_e.to_dict()
+sd_file = next(s for s in d_e["series"] if s["name"] == "fromfile")
+sd_manual = next(s for s in d_e["series"] if s["name"] == "manual")
+print(f"  fromfile: data_embedded={sd_file['data_embedded']}, x(埋め込み)={sd_file['x']}")
+print(f"  manual  : data_embedded={sd_manual['data_embedded']} (元ファイルが無いので常に埋め込み)")
+assert sd_file["data_embedded"] is False and sd_file["x"] == []
+assert sd_manual["data_embedded"] is True and sd_manual["x"] == [1.0, 2.0]
+
+doc_e2 = Document.from_dict(json.loads(json.dumps(d_e)))
+reloaded = next(s for s in doc_e2.series if s.name == "fromfile")
+print(f"  再読み込み後の y: {reloaded.y.tolist()} (元は [1,4,9,16])")
+assert np.allclose(reloaded.y, [1.0, 4.0, 9.0, 16.0])
+assert getattr(doc_e2, "_load_warnings", []) == []
+
+# 元ファイルが無くなっていたら、警告付きで空のまま (クラッシュしない)
+os.remove(src_path)
+doc_e3 = Document.from_dict(json.loads(json.dumps(d_e)))
+missing = next(s for s in doc_e3.series if s.name == "fromfile")
+print(f"  元ファイル削除後: 再読み込み失敗を検知={len(doc_e3._load_warnings) == 1}, "
+      f"データは空={len(missing.x) == 0}")
+assert len(doc_e3._load_warnings) == 1
+assert len(missing.x) == 0
+
+# force_embed=True (Undo/Redo用) は embed_data=False でも常に埋め込む
+d_force = doc_e.to_dict(force_embed=True)
+sd_force = next(s for s in d_force["series"] if s["name"] == "fromfile")
+print(f"  force_embed=True: data_embedded={sd_force['data_embedded']}")
+assert sd_force["data_embedded"] is True and sd_force["x"] == [1.0, 2.0, 3.0, 4.0]
+
 print("\n全テスト通過")

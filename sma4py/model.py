@@ -24,6 +24,14 @@ class Series:
     xerr: Optional[np.ndarray] = None
     yerr: Optional[np.ndarray] = None
 
+    # 元ファイルの列番号 (0始まり)。ImportDialog経由で読んだときだけ入る。
+    # 「データを埋め込まない」保存で、再読み込み時に source から復元するのに使う。
+    # 表エディタ等で直接編集すると None に戻し、埋め込み必須にする (invalidate)。
+    x_col: Optional[int] = None
+    y_col: Optional[int] = None
+    xerr_col: Optional[int] = None
+    yerr_col: Optional[int] = None
+
     marker: str = "○ 白丸"
     linestyle: str = "なし"
     color: str = "#1f77b4"
@@ -204,23 +212,45 @@ class Document:
     path: Optional[str] = None
     dirty: bool = False
 
-    def to_dict(self):
+    # False にすると、元ファイルから読んだ系列 (source + 列番号が分かるもの) は
+    # 保存時に生データを埋め込まず、開くときに元ファイルから読み直す。
+    # ファイルサイズを抑えたいときに使う。手作業で作った系列 (元ファイルが無い)
+    # は常に埋め込まれる (データが消えないようにするため)。
+    embed_data: bool = True
+
+    def to_dict(self, force_embed=False):
+        """force_embed=True にすると embed_data の設定を無視して常に埋め込む。
+
+        Undo/Redo の内部スナップショット (History) はこれを使う: ディスクに
+        書くわけではないので、毎回元ファイルを読み直す意味が無いし、元ファイルが
+        一時的に無い/移動した状態で元に戻す操作をしても壊れないようにするため。
+        実際に .s4p として保存するときだけ force_embed=False (既定) で呼ぶ。
+        """
+        series_list = []
+        for s in self.series:
+            d = {k: v for k, v in asdict(s).items()
+                 if k not in ("x", "y", "xerr", "yerr")}
+            # 元ファイルの列が分かっている系列だけ、埋め込みを省略できる
+            skip_embed = (not force_embed and not self.embed_data and s.source
+                          and s.x_col is not None and s.y_col is not None)
+            if skip_embed:
+                d["data_embedded"] = False
+                d["x"], d["y"], d["xerr"], d["yerr"] = [], [], None, None
+            else:
+                d["data_embedded"] = True
+                d["x"] = np.asarray(s.x).tolist()
+                d["y"] = np.asarray(s.y).tolist()
+                d["xerr"] = None if s.xerr is None else np.asarray(s.xerr).tolist()
+                d["yerr"] = None if s.yerr is None else np.asarray(s.yerr).tolist()
+            series_list.append(d)
+
         return {
             "version": 2,
+            "embed_data": self.embed_data,
             "config": asdict(self.config),
             "functions": [asdict(f) for f in self.functions],
             "annotations": [asdict(a) for a in self.annotations],
-            "series": [
-                {
-                    **{k: v for k, v in asdict(s).items()
-                       if k not in ("x", "y", "xerr", "yerr")},
-                    "x": np.asarray(s.x).tolist(),
-                    "y": np.asarray(s.y).tolist(),
-                    "xerr": None if s.xerr is None else np.asarray(s.xerr).tolist(),
-                    "yerr": None if s.yerr is None else np.asarray(s.yerr).tolist(),
-                }
-                for s in self.series
-            ],
+            "series": series_list,
             "fits": [asdict(f) for f in self.fits],
         }
 
@@ -228,8 +258,13 @@ class Document:
     def from_dict(cls, d):
         doc = cls()
         doc.config = GraphConfig(**d.get("config", {}))
+        doc.embed_data = d.get("embed_data", True)
+        warnings = []
         for sd in d.get("series", []):
             sd = dict(sd)
+            embedded = sd.pop("data_embedded", True)
+            if not embedded:
+                _reload_from_source(sd, warnings)
             sd["x"] = np.array(sd.get("x", []), dtype=float)
             sd["y"] = np.array(sd.get("y", []), dtype=float)
             xe = sd.get("xerr")
@@ -244,7 +279,37 @@ class Document:
             doc.functions.append(FunctionCurve(**fd))
         for ad in d.get("annotations", []):
             doc.annotations.append(Annotation(**ad))
+        # 再読み込みに失敗した系列があれば呼び出し側 (mainwindow) に伝える
+        doc._load_warnings = warnings
         return doc
+
+
+def _reload_from_source(sd, warnings):
+    """埋め込みを省略した系列データを、元ファイルから読み直して sd に書き戻す。
+
+    失敗したら sd の x/y/xerr/yerr は空のままにし、warnings にメッセージを積む。
+    """
+    src = sd.get("source") or ""
+    x_col, y_col = sd.get("x_col"), sd.get("y_col")
+    name = sd.get("name", "?")
+    try:
+        if not src or x_col is None or y_col is None:
+            raise ValueError("元ファイルの情報がありません。")
+        from . import data_io
+
+        data, _header = data_io.load_table(src)
+        sd["x"] = data[:, x_col].tolist()
+        sd["y"] = data[:, y_col].tolist()
+        xe_col = sd.get("xerr_col")
+        ye_col = sd.get("yerr_col")
+        sd["xerr"] = data[:, xe_col].tolist() if xe_col is not None else None
+        sd["yerr"] = data[:, ye_col].tolist() if ye_col is not None else None
+    except Exception as e:
+        warnings.append(f"「{name}」: {src} を再読み込みできませんでした ({e})")
+        sd["x"] = sd.get("x", [])
+        sd["y"] = sd.get("y", [])
+        sd["xerr"] = None
+        sd["yerr"] = None
 
 
 class History:

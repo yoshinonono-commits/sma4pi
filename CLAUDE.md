@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ```bash
 python -m sma4py               # アプリを起動 (GUI)
-python tests/test_features.py  # 非GUIの機能テスト (17項目)
+python tests/test_features.py  # 非GUIの機能テスト (18項目)
 ```
 
 テストは matplotlib の Agg バックエンドで動くので、GUI 環境が無くても走る。
@@ -51,6 +51,11 @@ sma4py/
 - **保存形式 `.s4p` は JSON。** `Document.to_dict` / `from_dict` が担当。
   フィールドを足すときは両方を更新し、`from_dict` は古いファイル(version 1)も
   開けるよう `dict.get(..., 既定値)` で読むこと。現在は version 2。
+- **`Document.embed_data` が False のとき、`to_dict()` は元ファイルの列が分かる
+  系列(`source`+`x_col`/`y_col`あり)のデータを埋め込まない。** Undo/Redo
+  (`History`)は毎回ディスクを読み直したくないので `to_dict(force_embed=True)`
+  を使うこと。手作業でデータ点を編集した系列は `x_col`/`y_col` を `None` に戻し、
+  常に埋め込む(元ファイルの行と対応しなくなるため)。
 - **UI 文言・コメントは日本語。** 既存のトーンに合わせる。
 - **matplotlib は `layout="constrained"` を使う。** `tight_layout` は使わない。
 
