@@ -3,5 +3,10 @@ __pycache__/
 *.pyc
 build/
 dist/
+
+# PyInstaller が自動生成する spec は無視するが、手で用意した Sma4Py.spec は
+# ビルド設定そのものなので追跡する（無視したままだとビルドが再現できない）。
 *.spec
+!Sma4Py.spec
+
 demo2.png
