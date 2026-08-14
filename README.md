@@ -124,15 +124,94 @@ sma4py/
 └── notation.py     Sma4 記法 → mathtext 変換
 ```
 
+ビルド関連のファイルは次の通りです。
+
+```
+Sma4Py.spec        PyInstaller の同梱設定(hiddenimports / datas)
+run_sma4py.py      ビルド時の起動スクリプト
+build.bat          Windows でビルド → dist\Sma4Py.exe
+build.sh           macOS / Linux でビルド → dist/Sma4Py.app など
+```
+
 グラフは `.s4p` (JSON) で保存され、データも一緒に埋め込まれます。
 保存形式は version 2 ですが、version 1 のファイルもそのまま開けます。
 
-## exe 化
+## 単体実行ファイルにする (exe 化)
+
+Python を入れていない人にも渡せる、単体で動く実行ファイルを作れます。
+PyInstaller を使いますが、必要なものは `requirements.txt` に入っているので
+個別のインストールは不要です。
+
+### Windows
+
+```bat
+build.bat
+```
+
+`dist\Sma4Py.exe` ができます。ダブルクリックで起動でき、コンソール窓は出ません。
+
+### macOS
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconsole --onefile --name Sma4Py sma4py/__main__.py
+bash build.sh
 ```
+
+`dist/Sma4Py.app` ができます。`open dist/Sma4Py.app` で起動します。
+
+初回起動で「開発元を確認できないため開けません」と出たら、署名していない
+`.app` が Gatekeeper に止められています。Finder で右クリック →「開く」を選べば
+以降は普通に起動できます (配布先でも同じ操作が必要です)。
+
+### Linux
+
+```bash
+bash build.sh
+```
+
+`dist/Sma4Py` (1ファイル) ができます。
+
+### ⚠️ 実行ファイルはビルドした OS 専用です
+
+**PyInstaller はクロスコンパイルできません。** 作られる実行ファイルには、その
+OS 用の Python 本体・Qt・各種バイナリがそのまま詰め込まれるためです。
+
+| 配布したい相手 | ビルドする場所 | 作られるもの |
+|---|---|---|
+| Windows | Windows 上で `build.bat` | `dist\Sma4Py.exe` |
+| macOS | macOS 上で `bash build.sh` | `dist/Sma4Py.app` |
+| Linux | Linux 上で `bash build.sh` | `dist/Sma4Py` |
+
+- Windows で作った `.exe` は macOS / Linux では動きません。逆も同じです。
+- macOS では **CPU アーキテクチャも引き継ぎます**。Apple Silicon で作った `.app` は
+  Intel Mac では動きません (その逆は Rosetta 経由で動きます)。両対応が要る場合は
+  それぞれの Mac でビルドしてください。
+- 3 つの OS 向けに配りたい場合は、3 つの OS でそれぞれビルドする必要があります。
+
+### 同梱設定について (`Sma4Py.spec`)
+
+PyInstaller はソースの `import` 文を静的に読んで同梱物を決めるため、
+実行時にしか分からない依存を取りこぼします。Sma4Py には次の 3 つがあり、
+`Sma4Py.spec` で明示的に指定しています。
+
+| 取りこぼす原因 | 該当箇所 | spec での対処 |
+|---|---|---|
+| 関数の中に隠れた import | `canvas.py` の `make_canvas()` が `backend_qtagg` を関数内で import | `hiddenimports` |
+| 文字列から決まる import | `savefig()` が拡張子を見て PDF / SVG / EPS のバックエンドを選ぶ | `hiddenimports` |
+| Python コードでないデータ | mathtext 用フォントなど matplotlib の `mpl-data` | `datas` |
+
+環境に PyQt5 などが残っていると matplotlib がそちらを巻き込んで PySide6 と
+衝突するため、他の Qt バインディングは `excludes` で外しています。
+
+設定を変えたいときは spec を編集してから、次のように直接実行できます。
+
+```bash
+pyinstaller --noconfirm --clean Sma4Py.spec
+```
+
+なお、エントリに `sma4py/__main__.py` を直接指定するとビルドは通っても起動時に
+`ImportError: attempted relative import with no known parent package` で落ちます。
+PyInstaller はエントリをパッケージではなく単なるスクリプトとして実行するためで、
+これを避けるために `run_sma4py.py` を挟んでいます。
 
 ## これから足せるもの
 
