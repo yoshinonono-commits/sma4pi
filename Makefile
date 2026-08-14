@@ -17,6 +17,6 @@ run:             ## アプリを起動 (GUI)
 test:            ## 非GUIテストを実行
 	$(PY) tests/test_features.py
 
-clean:           ## キャッシュと仮想環境を削除
-	rm -rf .venv build dist *.spec
+clean:           ## キャッシュと仮想環境を削除 (sma4py.spec はソース管理対象なので残す)
+	rm -rf .venv build dist
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true

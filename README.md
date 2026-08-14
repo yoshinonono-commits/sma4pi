@@ -127,12 +127,52 @@ sma4py/
 グラフは `.s4p` (JSON) で保存され、データも一緒に埋め込まれます。
 保存形式は version 2 ですが、version 1 のファイルもそのまま開けます。
 
-## exe 化
+## exe 化 (Windows)
+
+PyInstaller で単体exe (`dist\Sma4Py.exe`) を作れます。設定は `sma4py.spec` に
+まとめてあり、PySide6・matplotlib・scipy の取りこぼしやすいプラグイン/
+サブモジュール(Qtプラットフォームプラグイン、matplotlibのバックエンド、
+scipy.optimize/special/integrate の拡張)を明示的に同梱しています。
+
+### 実行時依存とビルド依存の分離
+
+`requirements.txt` はアプリの実行に必要なものだけです。PyInstaller は
+ビルドするときにしか要らないので `requirements-dev.txt` に分けています
+(`requirements.txt` を `-r` で取り込んだ上で `pyinstaller` を追加)。
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconsole --onefile --name Sma4Py sma4py/__main__.py
+pip install -r requirements.txt              # 実行するだけなら
+pip install -r requirements.txt -r requirements-dev.txt   # ビルドもするなら
 ```
+
+### ビルド手順 (Windows)
+
+```bat
+build.bat
+```
+
+`build.bat` は次を自動でやります: `.venv` の有効化 →
+`requirements.txt` + `requirements-dev.txt` のインストール →
+`pyinstaller sma4py.spec --noconfirm` の実行。成功すると
+`dist\Sma4Py.exe` ができます(コンソール窓は出ません)。
+
+手動でやる場合:
+
+```bat
+.venv\Scripts\activate.bat
+pip install -r requirements.txt -r requirements-dev.txt
+pyinstaller sma4py.spec --noconfirm
+```
+
+### 注意
+
+- **exe はビルドした OS 専用です。** Windows でビルドした `Sma4Py.exe` は
+  Windows でしか動きません(macOS/Linux用に配りたい場合は、それぞれの
+  OS上で改めてビルドが必要です)。
+- **初回起動はやや遅いです。** 単体exeは起動時に一時フォルダへ自己展開する
+  ため、2回目以降より初回のほうが時間がかかります。
+- **サイズは数百MBになります。** PySide6・matplotlib・scipy をまるごと
+  同梱するため、`Sma4Py.exe` は一般的なアプリより大きくなります。
 
 ## これから足せるもの
 

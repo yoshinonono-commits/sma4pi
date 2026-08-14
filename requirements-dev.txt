@@ -1,0 +1,8 @@
+# ビルド用の依存関係。実行時には不要 (requirements.txt には含めない)。
+#
+# 使い方:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# PyInstaller で Windows 用の単体exeを作るときだけ要る。
+-r requirements.txt
+pyinstaller>=6.3
