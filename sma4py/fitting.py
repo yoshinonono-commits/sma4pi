@@ -5,7 +5,7 @@ from scipy.optimize import curve_fit
 
 from .expression import make_function
 
-# よく使う関数のプリセット (表示名, 式, パラメータ名, 初期値の推定関数)
+# よく使う関数のプリセット (表示名, 式, パラメータ名)
 PRESETS = [
     ("直線 a + b*x", "a + b*x", ["a", "b"]),
     ("2次 a + b*x + c*x^2", "a + b*x + c*x**2", ["a", "b", "c"]),
@@ -15,6 +15,9 @@ PRESETS = [
     ("ガウス a*exp(-((x-b)/c)^2)", "a*exp(-((x-b)/c)**2)", ["a", "b", "c"]),
     ("ローレンツ a/((x-b)^2+c)", "a/((x-b)**2+c)", ["a", "b", "c"]),
     ("対数 a + b*log(x)", "a + b*log(x)", ["a", "b"]),
+    # b は角周波数 (周期 T に対して b = 2*pi/T)、c は位相、d は中心値。
+    # 初期値の b はグラフから読んだ周期をもとに 2*pi/T を入れると収束しやすい。
+    ("正弦波 a*sin(b*x+c)+d", "a*sin(b*x + c) + d", ["a", "b", "c", "d"]),
 ]
 
 
