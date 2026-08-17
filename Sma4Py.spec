@@ -146,41 +146,53 @@ a = Analysis(  # noqa: F821
 pyz = PYZ(a.pure)  # noqa: F821
 
 
-# --- 実行ファイルの作り方は OS ごとに変える --------------------------------
+# --- 出力形式: 全OSで onedir (フォルダ配布) --------------------------------
 #
-# Windows / Linux: 1ファイルの実行ファイル (onefile)。配布が楽。
-# macOS: .app バンドルを作る。.app は「中身がディレクトリの塊」という形式なので
-#        onefile ではなく onedir (COLLECT) で組んでから BUNDLE でくるむ。
+# onefile (1個の実行ファイル) ではなく onedir にしている理由:
+#
+#   1. 起動が速い。onefile は実行のたびに数百MBを一時フォルダへ展開するため、
+#      毎回それを待つことになる。onedir は展開済みなので待ち時間がない。
+#   2. ウイルス対策ソフトの誤検知が減る。onefile の「自分自身を展開して実行する」
+#      挙動はマルウェアと似ているため、ヒューリスティック検知に引っかかりやすい。
+#   3. PySide6 (Qt) が LGPL であるため。LGPL は利用者が Qt 部分を差し替えられる
+#      状態での配布を求めるが、onedir なら Qt のライブラリが独立したファイルとして
+#      並ぶので、この要件を満たしやすい。onefile は全部を1つに固めてしまう。
+#
+# 配布時は dist/Sma4Py/ を zip にまとめて渡す (build.bat / build.sh が作る)。
 
+exe = EXE(  # noqa: F821
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,       # 実体は COLLECT 側に置く
+    name=APP_NAME,
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,                   # UPX は Qt の DLL を壊すことがあるので使わない
+    console=False,               # --noconsole 相当
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,            # ビルドしたマシンのアーキテクチャに従う
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=None,
+)
+
+coll = COLLECT(  # noqa: F821
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name=APP_NAME,
+)
+
+# macOS だけは、さらに .app バンドルにくるむ。
+# .app は「中身がディレクトリの塊」という形式なので、onedir の COLLECT 結果を
+# そのまま包める。
 if sys.platform == "darwin":
-    exe = EXE(  # noqa: F821
-        pyz,
-        a.scripts,
-        [],
-        exclude_binaries=True,       # 実体は COLLECT 側に置く
-        name=APP_NAME,
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
-        console=False,               # --noconsole 相当
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,            # ビルドした Mac のアーキテクチャに従う
-        codesign_identity=None,
-        entitlements_file=None,
-    )
-
-    coll = COLLECT(  # noqa: F821
-        exe,
-        a.binaries,
-        a.datas,
-        strip=False,
-        upx=False,
-        upx_exclude=[],
-        name=APP_NAME,
-    )
-
     app = BUNDLE(  # noqa: F821
         coll,
         name=f"{APP_NAME}.app",
@@ -198,26 +210,4 @@ if sys.platform == "darwin":
             # は入れていない。アプリ側が起動引数を読んでファイルを開く実装を
             # 持っていないため、宣言しても「アプリが起動するだけ」になるので。
         },
-    )
-else:
-    exe = EXE(  # noqa: F821
-        pyz,
-        a.scripts,
-        a.binaries,
-        a.datas,
-        [],
-        name=APP_NAME,
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
-        upx_exclude=[],
-        runtime_tmpdir=None,
-        console=False,               # --noconsole 相当
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        icon=None,
     )

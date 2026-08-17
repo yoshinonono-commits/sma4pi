@@ -65,16 +65,29 @@ if errorlevel 1 (
     goto :fail
 )
 
-if not exist "dist\Sma4Py.exe" (
+if not exist "dist\Sma4Py\Sma4Py.exe" (
     echo.
-    echo [!] ビルドは終わりましたが dist\Sma4Py.exe がありません。
+    echo [!] ビルドは終わりましたが dist\Sma4Py\Sma4Py.exe がありません。
     goto :fail
 )
 
 echo.
+echo ==^> 配布用の zip にまとめます
+rem onedir はフォルダなので、そのままでは配れない。zip にまとめる。
+rem 第三者ライセンス表記も一緒に入れる (PySide6 が LGPL のため)。
+copy /y "THIRD_PARTY_NOTICES.md" "dist\Sma4Py\" >nul 2>nul
+powershell -NoProfile -Command ^
+  "Compress-Archive -Path 'dist\Sma4Py' -DestinationPath 'dist\Sma4Py-windows-x64.zip' -Force"
+if errorlevel 1 echo [!] zip 化に失敗しました（dist\Sma4Py はそのまま残ります）。
+
+echo.
 echo ==^> 完成
 echo.
-echo     dist\Sma4Py.exe
+echo     dist\Sma4Py\Sma4Py.exe
+echo     dist\Sma4Py-windows-x64.zip     ^<-- 配布するのはこちら
+echo.
+echo フォルダ配布 (onedir) です。zip を展開して Sma4Py.exe を実行してください。
+echo exe だけ取り出しても動きません（同じフォルダの DLL を使うため）。
 echo.
 echo この exe は Windows 専用です。macOS や Linux では動きません
 echo （そちらで配布したい場合は、その OS 上で build.sh を実行してください）。

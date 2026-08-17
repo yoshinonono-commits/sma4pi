@@ -65,9 +65,27 @@ if [ ! -e "$OUT" ]; then
   exit 1
 fi
 
+# --- 配布用 zip -----------------------------------------------------------
+# onedir はフォルダなので、そのままでは配れない。zip にまとめる。
+# 第三者ライセンス表記も一緒に入れる (PySide6 が LGPL のため)。
+say "配布用の zip にまとめます"
+ARCH="$(uname -m)"
+if [ "$TARGET" = "app" ]; then
+  ZIP="Sma4Py-macos-${ARCH}.zip"
+  cp THIRD_PARTY_NOTICES.md "dist/Sma4Py.app/Contents/Resources/" 2>/dev/null || true
+  # ditto を使うと .app の属性を保ったまま圧縮できる (macOS 標準)
+  (cd dist && ditto -c -k --sequesterRsrc --keepParent "Sma4Py.app" "$ZIP")
+else
+  ZIP="Sma4Py-linux-${ARCH}.zip"
+  cp THIRD_PARTY_NOTICES.md dist/Sma4Py/ 2>/dev/null || true
+  (cd dist && zip -qr "$ZIP" "Sma4Py")
+fi
+
+# --- 結果 -----------------------------------------------------------------
 say "完成"
 echo ""
 echo "    $OUT"
+echo "    dist/$ZIP        ← 配布するのはこちら"
 echo ""
 
 if [ "$TARGET" = "app" ]; then
@@ -82,16 +100,18 @@ if [ "$TARGET" = "app" ]; then
      xattr -dr com.apple.quarantine dist/Sma4Py.app ）
 
 この .app は macOS 専用で、ビルドしたマシンの CPU アーキテクチャ
-(Apple Silicon / Intel) 向けになる。Windows 用の exe が要る場合は
-Windows 上で build.bat を実行すること。
+(Apple Silicon / Intel) 向けになる。Windows 用の exe はこのスクリプトでは
+作れない (PyInstaller はクロスコンパイル不可)。Windows 実機で build.bat を
+実行するか、GitHub Actions の Windows ランナーを使うこと
+(.github/workflows/build.yml)。
 EOF
 else
   cat <<'EOF'
 起動:
-    ./dist/Sma4Py
+    ./dist/Sma4Py/Sma4Py
 
-この実行ファイルは Linux 専用。Windows 用の exe は Windows 上で
-build.bat を、macOS 用の .app は macOS 上でこのスクリプトを実行して作ること。
+この実行ファイルは Linux 専用。Windows 用は Windows 実機で build.bat を、
+macOS 用はこのスクリプトを macOS 上で実行して作ること。
 EOF
 fi
 echo ""

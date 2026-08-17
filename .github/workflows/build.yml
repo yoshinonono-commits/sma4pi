@@ -1,0 +1,90 @@
+# Windows / macOS の配布物をビルドする。
+#
+# PyInstaller はクロスコンパイルできないため、Windows 用の exe は Windows 上で
+# しかビルドできない。Mac しか手元に無くても配布物を作れるよう、GitHub の
+# Windows ランナーを使う。
+#
+# 動かし方:
+#   - タグを push する (例: git tag v0.1.0 && git push origin v0.1.0)
+#     → ビルドして Release を作り、zip を添付する
+#   - Actions タブから「Run workflow」を押す
+#     → ビルドだけ行い、成果物を Artifacts に置く (Release は作らない)
+
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # Release の作成と zip の添付に必要
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false   # 片方が失敗しても、もう片方は最後まで走らせる
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+          - os: macos-latest
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 依存パッケージをインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ビルド前に、ロジック層が壊れていないことを確かめる。
+      # このテストは matplotlib の Agg バックエンドを使うので GUI は要らない。
+      - name: 非GUIテスト
+        run: python tests/test_features.py
+
+      # build.bat / build.sh は呼ばない。あれらは対話用に pause を含んでおり、
+      # CI では入力待ちで止まってしまうため、PyInstaller を直接叩く。
+      - name: PyInstaller でビルド
+        run: pyinstaller --noconfirm --clean Sma4Py.spec
+
+      - name: 配布用 zip を作る (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item THIRD_PARTY_NOTICES.md dist/Sma4Py/
+          Compress-Archive -Path dist/Sma4Py -DestinationPath dist/Sma4Py-${{ matrix.label }}.zip -Force
+
+      - name: 配布用 zip を作る (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cp THIRD_PARTY_NOTICES.md dist/Sma4Py.app/Contents/Resources/
+          cd dist
+          # ditto なら .app の属性を保ったまま圧縮できる
+          ditto -c -k --sequesterRsrc --keepParent Sma4Py.app Sma4Py-${{ matrix.label }}.zip
+
+      - name: 成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sma4Py-${{ matrix.label }}
+          path: dist/Sma4Py-${{ matrix.label }}.zip
+          if-no-files-found: error
+
+      # タグを push したときだけ Release に添付する。
+      # 2つのジョブが同時に create を試みるので、既に在る場合のエラーは無視する。
+      - name: Release に添付
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+            || echo "Release は既に存在します。添付だけ行います。"
+          gh release upload "$GITHUB_REF_NAME" "dist/Sma4Py-${{ matrix.label }}.zip" --clobber

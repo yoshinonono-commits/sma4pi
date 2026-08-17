@@ -127,10 +127,12 @@ sma4py/
 ビルド関連のファイルは次の通りです。
 
 ```
-Sma4Py.spec        PyInstaller の同梱設定(hiddenimports / datas)
-run_sma4py.py      ビルド時の起動スクリプト
-build.bat          Windows でビルド → dist\Sma4Py.exe
-build.sh           macOS / Linux でビルド → dist/Sma4Py.app など
+Sma4Py.spec               PyInstaller の同梱設定(hiddenimports / datas)
+run_sma4py.py             ビルド時の起動スクリプト
+build.bat                 Windows でビルド → dist\Sma4Py-windows-x64.zip
+build.sh                  macOS / Linux でビルド → dist/Sma4Py-macos-*.zip など
+THIRD_PARTY_NOTICES.md    同梱ライブラリのライセンス表記(配布物に同梱される)
+.github/workflows/build.yml  GitHub Actions で Windows / macOS 版をビルド
 ```
 
 グラフは `.s4p` (JSON) で保存され、データも一緒に埋め込まれます。
@@ -142,13 +144,18 @@ Python を入れていない人にも渡せる、単体で動く実行ファイ�
 PyInstaller を使いますが、必要なものは `requirements.txt` に入っているので
 個別のインストールは不要です。
 
+出力は **onedir 形式**（フォルダ一式）です。1 個の実行ファイルに固める onefile
+形式ではありません。理由は[後述](#なぜ-onefile-ではなく-onedir-なのか)します。
+
 ### Windows
 
 ```bat
 build.bat
 ```
 
-`dist\Sma4Py.exe` ができます。ダブルクリックで起動でき、コンソール窓は出ません。
+`dist\Sma4Py\Sma4Py.exe` ができ、`dist\Sma4Py-windows-x64.zip` にまとまります。
+**配布するのは zip のほうです。** exe だけ取り出しても、同じフォルダの DLL を
+参照するため動きません。
 
 ### macOS
 
@@ -156,7 +163,8 @@ build.bat
 bash build.sh
 ```
 
-`dist/Sma4Py.app` ができます。`open dist/Sma4Py.app` で起動します。
+`dist/Sma4Py.app` と `dist/Sma4Py-macos-<arch>.zip` ができます。
+`open dist/Sma4Py.app` で起動します。
 
 初回起動で「開発元を確認できないため開けません」と出たら、署名していない
 `.app` が Gatekeeper に止められています。Finder で右クリック →「開く」を選べば
@@ -168,7 +176,7 @@ bash build.sh
 bash build.sh
 ```
 
-`dist/Sma4Py` (1ファイル) ができます。
+`dist/Sma4Py/Sma4Py` と `dist/Sma4Py-linux-<arch>.zip` ができます。
 
 ### ⚠️ 実行ファイルはビルドした OS 専用です
 
@@ -177,15 +185,71 @@ OS 用の Python 本体・Qt・各種バイナリがそのまま詰め込まれ�
 
 | 配布したい相手 | ビルドする場所 | 作られるもの |
 |---|---|---|
-| Windows | Windows 上で `build.bat` | `dist\Sma4Py.exe` |
-| macOS | macOS 上で `bash build.sh` | `dist/Sma4Py.app` |
-| Linux | Linux 上で `bash build.sh` | `dist/Sma4Py` |
+| Windows | Windows 上で `build.bat` | `Sma4Py-windows-x64.zip` |
+| macOS | macOS 上で `bash build.sh` | `Sma4Py-macos-<arch>.zip` |
+| Linux | Linux 上で `bash build.sh` | `Sma4Py-linux-<arch>.zip` |
 
 - Windows で作った `.exe` は macOS / Linux では動きません。逆も同じです。
 - macOS では **CPU アーキテクチャも引き継ぎます**。Apple Silicon で作った `.app` は
   Intel Mac では動きません (その逆は Rosetta 経由で動きます)。両対応が要る場合は
   それぞれの Mac でビルドしてください。
-- 3 つの OS 向けに配りたい場合は、3 つの OS でそれぞれビルドする必要があります。
+
+### Mac しか無くても Windows 版を作れます
+
+上の制約への対処として、**GitHub Actions の Windows ランナー**でビルドする
+ワークフローを用意してあります ([`.github/workflows/build.yml`](.github/workflows/build.yml))。
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+タグを push すると Windows と macOS の両方でビルドが走り、Release が作られて
+zip が添付されます。ビルドだけ試したいときは、GitHub の **Actions** タブから
+**Run workflow** を押してください（この場合は Release を作らず、Artifacts に
+成果物が置かれます）。
+
+### 配布するときの注意
+
+**1. Windows では SmartScreen の警告が出ます**
+
+署名していない実行ファイルなので、受け取った人の環境で
+「Windows によって PC が保護されました」と表示され、既定でブロックされます。
+不具合ではないため、配布時に次の手順を案内してください。
+
+> 「詳細情報」をクリック →「実行」を押す
+
+消すにはコード署名証明書（有料）が必要です。
+
+**2. ウイルス対策ソフトの誤検知**
+
+PyInstaller で作った実行ファイルは誤検知されることがあります。onedir 形式は
+onefile より起きにくいとされていますが、ゼロにはなりません。
+
+**3. Python を入れていない環境で必ず試してください**
+
+ビルドしたマシンには Python も Qt も入っているため、そこでの動作確認は
+当てになりません。
+
+**4. ライセンス表記を同梱してください**
+
+`THIRD_PARTY_NOTICES.md` が zip に入ります。**PySide6 と Qt は LGPL v3** で、
+配布時に条件が付きます。詳しくは
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) を参照してください。
+
+### なぜ onefile ではなく onedir なのか
+
+| | onefile | **onedir** (採用) |
+|---|---|---|
+| 配布物 | 実行ファイル 1 個 | フォルダ一式（zip で配る） |
+| 起動速度 | 遅い。毎回一時フォルダへ展開する | 速い。展開済み |
+| 誤検知 | されやすい | 比較的少ない |
+| LGPL 対応 | しにくい | しやすい |
+
+3 つ目と 4 つ目が決め手です。onefile は「自分自身を展開して実行する」挙動が
+マルウェアと似ているため検知に引っかかりやすく、また Qt のライブラリを 1 つに
+固めてしまうため、LGPL が求める「利用者が Qt 部分を差し替えられる状態」を
+保ちにくくなります。
 
 ### 同梱設定について (`Sma4Py.spec`)
 
