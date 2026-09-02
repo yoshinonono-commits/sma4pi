@@ -1,0 +1,9 @@
+# 配布用ビルドにだけ必要なもの。アプリを動かすだけなら要らない。
+# (実行時に必要なものは requirements.txt を見ること)
+#
+# build.bat (Windows) / build.sh (macOS, Linux) が requirements.txt と一緒に
+# これも入れるので、手で入れる必要は普段は無い。
+#
+# PyInstaller 6.x には PySide6 / matplotlib / scipy 向けのフックが同梱されており、
+# pyinstaller-hooks-contrib も依存として一緒に入る。
+pyinstaller>=6.0

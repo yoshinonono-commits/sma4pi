@@ -20,30 +20,44 @@ cd /d "%~dp0"
 echo.
 echo ==^> Python を確認します
 
-rem .venv があればそれを使う (setup.ps1 が作るもの)
+rem .venv があればそれを使い、無ければここで作る (setup.ps1 が作るものと同じ場所)
 if exist ".venv\Scripts\python.exe" (
-    set "PY=.venv\Scripts\python.exe"
     echo 仮想環境 .venv を使います。
 ) else (
     where python >nul 2>&1
     if errorlevel 1 (
         echo [!] Python が見つかりません。3.9 以上を入れてください: https://www.python.org/
+        echo     インストール時に "Add python.exe to PATH" にチェックを入れてください。
         goto :fail
     )
-    set "PY=python"
-    echo [!] .venv が見つかりません。システムの python を使います。
-    echo     先に setup.ps1 を実行して仮想環境を作るのを勧めます。
+    echo .venv が無いので作成します...
+    python -m venv .venv
+    if errorlevel 1 (
+        echo [!] 仮想環境を作成できませんでした。
+        goto :fail
+    )
+    echo 仮想環境 .venv を作成しました。
 )
+
+set "PY=.venv\Scripts\python.exe"
 
 "%PY%" --version
 if errorlevel 1 goto :fail
 
 echo.
-echo ==^> 依存パッケージを確認します（PyInstaller 含む）
+echo ==^> 依存パッケージを確認します（実行用 + ビルド用の PyInstaller）
+
+"%PY%" -m pip install --quiet --upgrade pip
 
 "%PY%" -m pip install --quiet -r requirements.txt
 if errorlevel 1 (
-    echo [!] 依存パッケージのインストールに失敗しました。
+    echo [!] requirements.txt のインストールに失敗しました。
+    goto :fail
+)
+
+"%PY%" -m pip install --quiet -r requirements-dev.txt
+if errorlevel 1 (
+    echo [!] requirements-dev.txt のインストールに失敗しました。
     goto :fail
 )
 
@@ -74,7 +88,10 @@ if not exist "dist\Sma4Py.exe" (
 echo.
 echo ==^> 完成
 echo.
-echo     dist\Sma4Py.exe
+echo     %CD%\dist\Sma4Py.exe
+echo.
+echo この exe 1つを渡せば、受け取った人は Python も仮想環境も入れずに
+echo ダブルクリックで起動できます。初回起動は展開のため少し待ちます。
 echo.
 echo この exe は Windows 専用です。macOS や Linux では動きません
 echo （そちらで配布したい場合は、その OS 上で build.sh を実行してください）。
