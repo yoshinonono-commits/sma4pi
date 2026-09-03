@@ -41,8 +41,9 @@ fi
 "$PY" --version
 
 # --- 依存インストール -----------------------------------------------------
-say "依存パッケージを確認します（PyInstaller 含む）"
+say "依存パッケージを確認します（実行用 + ビルド用の PyInstaller）"
 "$PY" -m pip install --quiet -r requirements.txt
+"$PY" -m pip install --quiet -r requirements-dev.txt
 echo "インストール完了。"
 
 # --- 掃除 -----------------------------------------------------------------

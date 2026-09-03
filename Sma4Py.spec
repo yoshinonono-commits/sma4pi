@@ -98,6 +98,16 @@ hiddenimports += [
     "scipy.sparse.csgraph._validation",
 ]
 
+# expression.py が使う scipy。どちらも「取りこぼしても落ちない」ぶん厄介なので明示する:
+#   - scipy.special (erf / jn / yn) は try/except ImportError の中で import している。
+#     同梱が漏れると例外にならず、数式で使える関数から erf などが静かに消えるだけで、
+#     ユーザーには「なぜか erf が未知の名前になる」という形でしか見えない。
+#   - scipy.integrate (cumulative_trapezoid) は integ() の関数内 import。
+hiddenimports += [
+    "scipy.special",
+    "scipy.integrate",
+]
+
 
 # --- datas: Python コードではないが必要なファイル --------------------------
 

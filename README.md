@@ -176,7 +176,8 @@ build.sh           macOS / Linux でビルド → dist/Sma4Py.app など
 ## 単体実行ファイルにする (exe 化)
 
 Python を入れていない人にも渡せる、単体で動く実行ファイルを作れます。
-PyInstaller を使いますが、必要なものは `requirements.txt` に入っているので
+ビルドに使う PyInstaller は `requirements-dev.txt` に分けてありますが、
+`build.bat` / `build.sh` が実行用 (`requirements.txt`) と一緒に入れるので、
 個別のインストールは不要です。
 
 ### Windows
@@ -185,7 +186,24 @@ PyInstaller を使いますが、必要なものは `requirements.txt` に入っ
 build.bat
 ```
 
+エクスプローラーで `build.bat` をダブルクリックしても構いません。
+仮想環境 `.venv` が無ければ自動で作り、依存をインストールしてからビルドします。
+
 `dist\Sma4Py.exe` ができます。ダブルクリックで起動でき、コンソール窓は出ません。
+
+**配布のしかた**: この `dist\Sma4Py.exe` **1ファイルだけ**を渡せば済みます。
+受け取った人は Python も仮想環境もインストール不要で、ダブルクリックするだけで
+起動できます。ただし次の点は伝えておくとよいです。
+
+- **初回起動は少し待ちます** (10〜30秒程度)。単一 exe は起動のたびに中身を
+  一時フォルダへ展開する方式で、初回はそれに加えて matplotlib のフォント
+  キャッシュ作成も走るためです。2回目以降は速くなります。
+- **ファイルサイズは数百 MB になります**。Python 本体・Qt・matplotlib・scipy を
+  丸ごと抱えているためで、メール添付には向きません (共有ストレージ等を推奨)。
+- **Windows の警告が出ることがあります**。署名していない exe なので、
+  SmartScreen が「WindowsによってPCが保護されました」と出す場合があります。
+  「詳細情報」→「実行」で起動できます。ウイルス対策ソフトが初回起動時の
+  展開をスキャンして、さらに時間がかかることもあります。
 
 ### macOS
 
@@ -249,6 +267,46 @@ pyinstaller --noconfirm --clean Sma4Py.spec
 `ImportError: attempted relative import with no known parent package` で落ちます。
 PyInstaller はエントリをパッケージではなく単なるスクリプトとして実行するためで、
 これを避けるために `run_sma4py.py` を挟んでいます。
+
+### 同梱漏れが起きたときの見分け方
+
+ビルド自体は成功するのに配布先で動かない、という形で出るので、症状から
+当たりを付けられるようにしておきます。
+
+| 症状 | 疑うところ | 対処 |
+|---|---|---|
+| 起動直後に「Qt platform plugin windows が読み込めない」 | PySide6 の Qt プラグイン (`platforms\qwindows.dll`) | spec で PySide6 を `collect_all` して丸ごと入れる (下記) |
+| 画像書き出しで PDF / SVG / EPS だけ失敗する | `savefig` が動的に選ぶバックエンド | spec の `hiddenimports` に `backend_pdf` などがあるか確認 |
+| 数式変換で `erf` が「未知の名前」になる | `scipy.special` (try/except の中で import しているため落ちずに機能だけ消える) | spec の `hiddenimports` に `scipy.special` があるか確認 |
+| 軸ラベルの日本語が □□□ になる | 日本語フォント | 下記「日本語フォント」を参照 |
+| `ImportError: DLL load failed` | scipy のコンパイル済み拡張 | spec の `scipy._lib.messagestream` などの行を確認 |
+
+**PySide6 の Qt プラグインについて**: 現在の spec は PyInstaller 同梱のフックに
+任せています (通常はこれで `platforms\qwindows.dll` まで正しく入ります)。
+`collect_all("PySide6")` で丸ごと入れる方が確実ですが、QtWebEngine など使わない
+ものまで抱えて数百 MB 増えるため、既定では使っていません。もし上記の症状が
+出たら、`Sma4Py.spec` に次を足して再ビルドしてください。
+
+```python
+from PyInstaller.utils.hooks import collect_all
+_d, _b, _h = collect_all("PySide6")
+datas += _d
+hiddenimports += _h
+```
+
+**日本語フォント**: フォントは同梱していません。`canvas.py` の
+`setup_japanese_font()` が実行時に OS のフォント (Windows なら 游ゴシック /
+メイリオ / MS ゴシック) を探して使うためで、標準的な Windows なら追加作業は
+不要です。逆に、これらを全て削ったような環境では豆腐 (□) になります。その場合は
+フォントファイルを `datas` に加えて同梱し、`setup_japanese_font()` の候補に
+追加してください。なお数式 (mathtext) 側は matplotlib 同梱の Computer Modern を
+使っており、こちらは `mpl-data` として exe に入っています。
+
+**ビルド前に確認しておくとよいこと**: ビルドに使う Python は 64bit 版が無難です。
+また、システム環境に PyQt5 などの別の Qt バインディングが入っていると
+matplotlib がそちらを巻き込むことがあります (spec の `excludes` で防いでいますが、
+`.venv` を使ってクリーンな環境でビルドするのが確実です。`build.bat` は
+`.venv` を自動で作るので、通常はそれに従っていれば問題ありません)。
 
 ## これから足せるもの
 

@@ -3,6 +3,5 @@ matplotlib>=3.7
 numpy>=1.24
 scipy>=1.10
 
-# --- 開発用 -----------------------------------------------------------------
-# アプリを動かすだけなら不要。exe / .app のビルド (build.bat / build.sh) にだけ使う。
-pyinstaller>=6.0
+# ビルド (exe / .app 作成) にだけ必要なものは requirements-dev.txt に分けてある。
+# build.bat / build.sh は両方を入れるので、普段は意識しなくてよい。
