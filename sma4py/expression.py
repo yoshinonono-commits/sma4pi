@@ -25,10 +25,17 @@ FUNCS = {
 CONSTS = {"pi": np.pi, "e": np.e}
 
 try:
-    from scipy.special import erf as _erf, jn as _jn, yn as _yn
+    from scipy.special import erf as _erf, jn as _jn, yn as _yn, wofz as _wofz
     FUNCS["erf"] = _erf
     FUNCS["jn"] = _jn   # 第1種ベッセル
     FUNCS["yn"] = _yn   # 第2種ベッセル
+
+    def _voigt(x, sigma, gamma):
+        """Voigt プロファイル (Faddeeva 関数 wofz による厳密計算)。"""
+        z = (np.asarray(x, dtype=float) + 1j * gamma) / (np.asarray(sigma, dtype=float) * np.sqrt(2))
+        return np.real(_wofz(z)) / (np.asarray(sigma, dtype=float) * np.sqrt(2 * np.pi))
+
+    FUNCS["voigt"] = _voigt
 except ImportError:
     FUNCS.pop("erf")
 
