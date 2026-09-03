@@ -15,8 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backend_bases import MouseEvent, MouseButton
 
-from sma4py import canvas as cv, model, interaction
-from sma4py.model import Document, Series, FunctionCurve, Annotation
+from sma4py import canvas as cv, model, interaction, fitting
+from sma4py.model import Document, Series, FunctionCurve, Annotation, History
 
 # --- 土台 -----------------------------------------------------------------
 cv.setup_japanese_font()
@@ -147,4 +147,141 @@ doc.config.ylabel = "%Iy%R"
 cv.render(doc, ax)
 fig.savefig("/tmp/demo2.png", dpi=150)
 print("  demo2.png を出力")
+
+print("\n=== 12. Voigt プリセットでのフィッティング ===")
+xv = np.linspace(-5, 5, 200)
+name, expr, params = next(p for p in fitting.PRESETS if p[0].startswith("Voigt"))
+print(f"  プリセット名: {name}")
+assert params == ["a", "b", "s", "g"]
+from sma4py.expression import make_function
+f = make_function(expr, params)
+yv = f(xv, 3.0, 0.0, 1.0, 0.5) + np.random.normal(0, 0.01, xv.size)
+res = fitting.fit(xv, yv, expr, params, p0=[1.0, 0.0, 1.0, 1.0])
+print(f"  推定: a={res.values[0]:.3f} b={res.values[1]:.3f} "
+      f"s={res.values[2]:.3f} g={res.values[3]:.3f} (真値 3, 0, 1, 0.5)")
+assert abs(res.values[0] - 3.0) < 0.3
+assert res.r2 > 0.9
+
+print("\n=== 13. 元に戻す/やり直し (History) ===")
+h = History()
+snap_empty = doc.to_dict()
+h.push(snap_empty)
+snap_after_change = doc.to_dict()
+snap_after_change["config"]["title"] = "変更後"
+restored = h.undo(snap_after_change)
+print(f"  undo でタイトルが元に戻る: {restored['config']['title'] == snap_empty['config']['title']}")
+assert restored["config"]["title"] == snap_empty["config"]["title"]
+assert not h.can_undo() and h.can_redo()
+redone = h.redo(restored)
+print(f"  redo で変更後の状態に戻る: {redone['config']['title'] == '変更後'}")
+assert redone["config"]["title"] == "変更後"
+assert h.can_undo() and not h.can_redo()
+
+print("\n=== 14. X方向の誤差棒と保存/読み込み ===")
+s_err = Series(name="xy誤差", x=np.array([1.0, 2.0, 3.0]), y=np.array([1.0, 4.0, 9.0]),
+               xerr=np.array([0.1, 0.2, 0.1]), yerr=np.array([0.5, 0.3, 0.4]))
+doc_err = Document()
+doc_err.series.append(s_err)
+ax_err = plt.figure().add_subplot(111)
+cv.render(doc_err, ax_err)  # xerr 付きでもエラーにならないことを確認
+d_err = json.loads(json.dumps(doc_err.to_dict(), ensure_ascii=False))
+doc_err2 = Document.from_dict(d_err)
+print(f"  xerr 往復: {doc_err2.series[0].xerr.tolist()}")
+assert np.allclose(doc_err2.series[0].xerr, s_err.xerr)
+assert np.allclose(doc_err2.series[0].yerr, s_err.yerr)
+
+print("\n=== 15. 残差プロット ===")
+xr = np.linspace(0, 10, 30)
+yr = 2.0 + 3.0 * xr + np.random.normal(0, 0.05, xr.size)
+doc_r = Document()
+doc_r.series.append(Series(name="線形", x=xr, y=yr))
+res_r = fitting.fit(xr, yr, "a + b*x", ["a", "b"], p0=[1.0, 1.0])
+doc_r.fits.append(model.FitCurve(
+    name="fit: 線形", source_series="線形", expr=res_r.expr,
+    params=res_r.params, values=res_r.values, xmin=float(xr.min()), xmax=float(xr.max())))
+print(f"  残差データが取れる: {cv.has_residual_data(doc_r)}")
+assert cv.has_residual_data(doc_r)
+fig_r = plt.figure(figsize=(6, 4.5), layout="constrained")
+main_ax, res_ax = cv.build_axes(fig_r, True)
+cv.render(doc_r, main_ax, residual_ax=res_ax)
+rx, resid = cv._fit_residual(doc_r, doc_r.fits[0])
+print(f"  残差の標準偏差 ≈ {np.std(resid):.3f} (ノイズ 0.05 程度)")
+assert np.std(resid) < 0.2
+
+print("\n=== 16. 多重ピーク関数の組み立て ===")
+expr_mp, params_mp = fitting.build_multipeak("ガウス", 2, baseline=True)
+print(f"  生成された式: {expr_mp}")
+print(f"  パラメータ: {params_mp}")
+assert params_mp == ["d0", "a1", "b1", "c1", "a2", "b2", "c2"]
+xmp = np.linspace(-10, 10, 300)
+f_mp = make_function(expr_mp, params_mp)
+true_vals = [0.5, 3.0, -3.0, 1.0, 2.0, 3.0, 1.5]
+ymp = f_mp(xmp, *true_vals) + np.random.normal(0, 0.02, xmp.size)
+res_mp = fitting.fit(xmp, ymp, expr_mp, params_mp, p0=true_vals)
+print(f"  推定 b1={res_mp.values[2]:.2f} b2={res_mp.values[5]:.2f} (真値 -3, 3)")
+assert abs(res_mp.values[2] - (-3.0)) < 0.3
+assert abs(res_mp.values[5] - 3.0) < 0.3
+
+print("\n=== 17. 誤差関数(erf)プリセットでのフィッティング ===")
+name_erf, expr_erf, params_erf = next(p for p in fitting.PRESETS if "erf" in p[1])
+print(f"  プリセット名: {name_erf}")
+assert params_erf == ["a", "b", "c", "d"]
+xe = np.linspace(-10, 10, 200)
+f_erf = make_function(expr_erf, params_erf)
+ye = f_erf(xe, 5.0, 3.0, 1.0, 2.0) + np.random.normal(0, 0.05, xe.size)
+res_erf = fitting.fit(xe, ye, expr_erf, params_erf, p0=[1.0, 1.0, 0.0, 1.0])
+print(f"  推定: a={res_erf.values[0]:.2f} b={res_erf.values[1]:.2f} "
+      f"c={res_erf.values[2]:.2f} d={res_erf.values[3]:.2f} (真値 5, 3, 1, 2)")
+assert abs(res_erf.values[0] - 5.0) < 0.3
+assert res_erf.r2 > 0.95
+
+print("\n=== 18. データを埋め込まない保存 (embed_data) ===")
+from sma4py import data_io
+import tempfile
+
+tmp_dir = tempfile.mkdtemp()
+src_path = os.path.join(tmp_dir, "src.txt")
+with open(src_path, "w", encoding="utf-8") as fh:
+    fh.write("# x y yerr\n")
+    for xv, yv, ev in zip([1.0, 2.0, 3.0, 4.0], [1.0, 4.0, 9.0, 16.0], [0.1, 0.2, 0.1, 0.3]):
+        fh.write(f"{xv} {yv} {ev}\n")
+data_src, _ = data_io.load_table(src_path)
+
+doc_e = Document()
+doc_e.embed_data = False
+s_file = Series(name="fromfile", x=data_src[:, 0].copy(), y=data_src[:, 1].copy(),
+                yerr=data_src[:, 2].copy(), source=src_path, x_col=0, y_col=1, yerr_col=2)
+s_manual = Series(name="manual", x=np.array([1.0, 2.0]), y=np.array([5.0, 6.0]))
+doc_e.series.append(s_file)
+doc_e.series.append(s_manual)
+
+d_e = doc_e.to_dict()
+sd_file = next(s for s in d_e["series"] if s["name"] == "fromfile")
+sd_manual = next(s for s in d_e["series"] if s["name"] == "manual")
+print(f"  fromfile: data_embedded={sd_file['data_embedded']}, x(埋め込み)={sd_file['x']}")
+print(f"  manual  : data_embedded={sd_manual['data_embedded']} (元ファイルが無いので常に埋め込み)")
+assert sd_file["data_embedded"] is False and sd_file["x"] == []
+assert sd_manual["data_embedded"] is True and sd_manual["x"] == [1.0, 2.0]
+
+doc_e2 = Document.from_dict(json.loads(json.dumps(d_e)))
+reloaded = next(s for s in doc_e2.series if s.name == "fromfile")
+print(f"  再読み込み後の y: {reloaded.y.tolist()} (元は [1,4,9,16])")
+assert np.allclose(reloaded.y, [1.0, 4.0, 9.0, 16.0])
+assert getattr(doc_e2, "_load_warnings", []) == []
+
+# 元ファイルが無くなっていたら、警告付きで空のまま (クラッシュしない)
+os.remove(src_path)
+doc_e3 = Document.from_dict(json.loads(json.dumps(d_e)))
+missing = next(s for s in doc_e3.series if s.name == "fromfile")
+print(f"  元ファイル削除後: 再読み込み失敗を検知={len(doc_e3._load_warnings) == 1}, "
+      f"データは空={len(missing.x) == 0}")
+assert len(doc_e3._load_warnings) == 1
+assert len(missing.x) == 0
+
+# force_embed=True (Undo/Redo用) は embed_data=False でも常に埋め込む
+d_force = doc_e.to_dict(force_embed=True)
+sd_force = next(s for s in d_force["series"] if s["name"] == "fromfile")
+print(f"  force_embed=True: data_embedded={sd_force['data_embedded']}")
+assert sd_force["data_embedded"] is True and sd_force["x"] == [1.0, 2.0, 3.0, 4.0]
+
 print("\n全テスト通過")

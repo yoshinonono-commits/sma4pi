@@ -8,8 +8,11 @@ from .notation import to_mathtext
 _DASH = {"実線": "-", "破線": "--", "点線": ":", "一点鎖線": "-."}
 
 
-def render(doc, ax):
+def render(doc, ax, residual_ax=None):
     """Document の内容を ax に描き込み、注釈の artist リストを返す。
+
+    residual_ax を渡すと、フィット曲線に対応する系列があれば
+    「データ - モデル」を残差プロットとしてそこに描く。
 
     戻り値は [(annotation, artist), ...]。ドラッグ移動の当たり判定に使う。
     """
@@ -29,8 +32,12 @@ def render(doc, ax):
             continue
 
         kw = s.mpl_kwargs()
-        if s.yerr is not None and len(s.yerr) == len(y):
-            container = ax.errorbar(x, y, yerr=s.yerr, capsize=3, **kw)
+        has_xerr = s.xerr is not None and len(s.xerr) == len(x)
+        has_yerr = s.yerr is not None and len(s.yerr) == len(y)
+        if has_xerr or has_yerr:
+            container = ax.errorbar(
+                x, y, xerr=s.xerr if has_xerr else None,
+                yerr=s.yerr if has_yerr else None, capsize=3, **kw)
             line = container.lines[0]
         else:
             (line,) = ax.plot(x, y, **kw)
@@ -80,7 +87,12 @@ def render(doc, ax):
     if not cfg.yauto:
         ax.set_ylim(cfg.ymin, cfg.ymax)
 
-    ax.set_xlabel(to_mathtext(cfg.xlabel), fontsize=cfg.font_size)
+    if residual_ax is None:
+        ax.set_xlabel(to_mathtext(cfg.xlabel), fontsize=cfg.font_size)
+    else:
+        # 残差プロットと x 軸を共有するので、メイン軸側の表示は消す
+        ax.set_xlabel("")
+        ax.tick_params(labelbottom=False)
     ax.set_ylabel(to_mathtext(cfg.ylabel), fontsize=cfg.font_size)
     if cfg.title:
         ax.set_title(to_mathtext(cfg.title), fontsize=cfg.font_size + 1)
@@ -95,6 +107,9 @@ def render(doc, ax):
         ax.legend(handles, labels, loc=cfg.legend_loc, fontsize=cfg.font_size - 1,
                   framealpha=0.9)
 
+    if residual_ax is not None:
+        _render_residuals(doc, residual_ax, cfg)
+
     # 注釈は最後に描く(常に手前に来るように)
     artists = []
     for a in doc.annotations:
@@ -102,6 +117,60 @@ def render(doc, ax):
             continue
         artists.append((a, _draw_annotation(a, ax)))
     return artists
+
+
+def _render_residuals(doc, rax, cfg):
+    """フィット曲線に対応する系列があれば「データ - モデル」を rax に描く。"""
+    rax.clear()
+    for f in doc.fits:
+        if not f.visible:
+            continue
+        data = _fit_residual(doc, f)
+        if data is None:
+            continue
+        rx, resid = data
+        rax.plot(
+            rx, resid, "o", markersize=4, linestyle="None",
+            markerfacecolor="none", markeredgecolor=f.color, markeredgewidth=1.0,
+        )
+    rax.axhline(0, color="#888888", linewidth=0.8)
+    rax.set_xlabel(to_mathtext(cfg.xlabel), fontsize=cfg.font_size)
+    rax.set_ylabel("残差", fontsize=cfg.font_size - 1)
+    rax.tick_params(
+        direction=cfg.tick_direction, top=True, right=True,
+        which="both", labelsize=cfg.font_size - 1,
+    )
+    rax.grid(cfg.grid, alpha=0.3)
+
+
+def _fit_residual(doc, fit):
+    """fit に対応する系列の (x, データ-モデル) を返す。対応が無ければ None。"""
+    s = next((s for s in doc.series if s.name == fit.source_series), None)
+    if s is None:
+        return None
+    try:
+        x, y = s.transformed()
+    except Exception:
+        return None
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    good = np.isfinite(x) & np.isfinite(y)
+    x, y = x[good], y[good]
+    if len(x) == 0:
+        return None
+    try:
+        model_y = np.asarray(fit.evaluate(x), dtype=float)
+    except Exception:
+        return None
+    ok = np.isfinite(model_y)
+    if not np.any(ok):
+        return None
+    return x[ok], y[ok] - model_y[ok]
+
+
+def has_residual_data(doc):
+    """残差プロットとして描けるフィットが1つでもあるか。"""
+    return any(f.visible and _fit_residual(doc, f) is not None for f in doc.fits)
 
 
 def _draw_annotation(a, ax):
@@ -144,6 +213,21 @@ def data_bounds(doc):
     return min(a for a, _ in xs), max(b for _, b in xs)
 
 
+def build_axes(fig, with_residual):
+    """fig を作り直し、メイン軸 (と必要なら残差軸) を返す。
+
+    残差軸は with_residual が True のときだけ作り、x 軸をメイン軸と共有する
+    (メイン軸をズームすれば残差側も一緒に動く)。PySide6 には依存しない。
+    """
+    fig.clear()
+    if with_residual:
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
+        ax = fig.add_subplot(gs[0])
+        rax = fig.add_subplot(gs[1], sharex=ax)
+        return ax, rax
+    return fig.add_subplot(111), None
+
+
 # --- Qt 埋め込み用 ---------------------------------------------------------
 
 def make_canvas(parent=None):
@@ -155,8 +239,8 @@ def make_canvas(parent=None):
     canvas = FigureCanvasQTAgg(fig)
     if parent is not None:
         canvas.setParent(parent)
-    ax = fig.add_subplot(111)
-    return canvas, fig, ax
+    ax, residual_ax = build_axes(fig, False)
+    return canvas, fig, ax, residual_ax
 
 
 def setup_japanese_font():

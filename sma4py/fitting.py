@@ -18,7 +18,40 @@ PRESETS = [
     # b は角周波数 (周期 T に対して b = 2*pi/T)、c は位相、d は中心値。
     # 初期値の b はグラフから読んだ周期をもとに 2*pi/T を入れると収束しやすい。
     ("正弦波 a*sin(b*x+c)+d", "a*sin(b*x + c) + d", ["a", "b", "c", "d"]),
+    ("Voigt a*voigt(x-b,s,g)", "a*voigt(x-b, s, g)", ["a", "b", "s", "g"]),
+    ("誤差関数 a + b*erf((x-c)/d)", "a + b*erf((x-c)/d)", ["a", "b", "c", "d"]),
 ]
+
+# 多重ピークの組み立てに使う形状テンプレート。
+# 値は (パラメータ名の並び, 1ピーク分の式テンプレート)。
+PEAK_SHAPES = {
+    "ガウス": (["a", "b", "c"], "{a}*exp(-((x-{b})/{c})**2)"),
+    "ローレンツ": (["a", "b", "c"], "{a}/((x-{b})**2+{c})"),
+    "Voigt": (["a", "b", "s", "g"], "{a}*voigt(x-{b}, {s}, {g})"),
+}
+
+
+def build_multipeak(shape, n, baseline=True):
+    """shape (PEAK_SHAPES のキー) を n 個足し合わせた式を組み立てる。
+
+    baseline が True なら定数項 d0 を先頭に加える。(expr, params) を返す。
+    """
+    if shape not in PEAK_SHAPES:
+        raise ValueError(f"未知のピーク形状です: {shape}")
+    names, template = PEAK_SHAPES[shape]
+
+    terms = []
+    params = []
+    for i in range(1, n + 1):
+        sub = {name: f"{name}{i}" for name in names}
+        terms.append(template.format(**sub))
+        params.extend(sub[name] for name in names)
+
+    expr = " + ".join(terms)
+    if baseline:
+        expr = "d0 + " + expr
+        params = ["d0"] + params
+    return expr, params
 
 
 class FitResult:
